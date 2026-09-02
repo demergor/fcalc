@@ -11,5 +11,11 @@ fn main() {
         return;
     };
     let cbuf = CharBuf::new(&terminal);
-    println!("Terminal height: {}\nTerminal width: {}", terminal.height, terminal.width);
+
+    let height = terminal.height;
+    let width = terminal.width;
+
+    drop(terminal);
+
+    println!("Terminal height: {}\nTerminal width: {}", height, width);
 }

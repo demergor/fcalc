@@ -1,171 +1,49 @@
 use std::{
-    ffi::{c_int, c_ulong},
     io::{self, Write},
     mem::MaybeUninit,
 };
 
-// Control
-const _CLEAR_SCREEN: &str = "\x1b[2J"; // Clears visible screen
-const _CLEAR_LINE: &str = "\x1b[2K"; // Clears current line
-const _HIDE_CURSOR: &str = "\x1b[?25l";
-const _SHOW_CURSOR: &str = "\x1b[?25h";
 const ENTER_ALT_SCREEN: &str = "\x1b[?1049h";
 const LEAVE_ALT_SCREEN: &str = "\x1b[?1049l";
-const _RESET: &str = "\x1b[0m";
 
-// Navigation
-const _CURSOR_HOME: &str = "\x1b[H"; // Moves cursor to (0,0)
-const _CURSOR_UP: &str = "\x1b[A";
-const _CURSOR_DOWN: &str = "\x1b[B";
-const _CURSOR_RIGHT: &str = "\x1b[C";
-const _CURSOR_LEFT: &str = "\x1b[D";
-
-// Styles
-const _BOLD: &str = "\x1b[1m";
-const _DIM: &str = "\x1b[2m";
-const _UNDERLINE: &str = "\x1b[4m";
-
-// Foreground (Text) Colors
-const _GREY: &str = "\x1b[90m";
-const _RED: &str = "\x1b[31m";
-const _BLACK: &str = "\x1b[30m";
-const _GREEN: &str = "\x1b[32m";
-const _YELLOW: &str = "\x1b[33m";
-const _BLUE: &str = "\x1b[34m";
-const _MAGENTA: &str = "\x1b[35m";
-const _CYAN: &str = "\x1b[36m";
-const _WHITE: &str = "\x1b[37m";
-
-#[repr(C)]
-struct WinSize {
-    ws_row: u16,
-    ws_col: u16,
-    ws_xpixel: u16,
-    ws_ypixel: u16,
-}
-
-#[allow(rust_analyzer::inactive_code)]
-#[cfg(target_os = "linux")]
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct Termios {
-    c_iflag: u32,
-    c_oflag: u32,
-    c_cflag: u32,
-    c_lflag: u32,
-    c_line: u8,
-    c_cc: [u8; 32],
-    c_ispeed: u32,
-    c_ospeed: u32,
-}
-
-#[allow(rust_analyzer::inactive_code)]
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct Termios {
-    c_iflag: c_ulong,
-    c_oflag: c_ulong,
-    c_cflag: c_ulong,
-    c_lflag: c_ulong,
-    c_cc: [u8; 20],
-    c_ispeed: c_ulong,
-    c_ospeed: c_ulong,
-}
-
-#[allow(rust_analyzer::inactive_code)]
-#[cfg(target_os = "linux")]
-const TCSAFLUSH: c_int = 2;
-
-#[allow(rust_analyzer::inactive_code)]
-#[cfg(target_os = "macos")]
-const TCSAFLUSH: c_int = 10;
-
-const ECHO: u32 = 0x0000_0008;
-const ICANON: u32 = 0x0000_0002;
-
-unsafe extern "C" {
-    fn tcgetattr(fd: c_int, termios_ptr: *mut Termios) -> c_int;
-    fn tcsetattr(
-        fd: c_int,
-        optional_actions: c_int,
-        termios_ptr: *const Termios,
-    ) -> c_int;
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum TerminalPreparationError {
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    UnsupportedOperatingSystem,
     BadTerminalSize,
-    IoctlFailure,
+    Io(io::Error),
+}
+
+impl From<io::Error> for TerminalPreparationError {
+    fn from(error: io::Error) -> TerminalPreparationError {
+        Self::Io(error)
+    }
 }
 
 #[derive(Debug)]
 pub struct Terminal {
     pub width: u16,
     pub height: u16,
-    og_termios: Termios,
+    og_termios: libc::termios,
 }
 
 impl Terminal {
-    pub fn new() -> Result<Terminal, TerminalPreparationError> {
-        use TerminalPreparationError as Error;
-
-        unsafe extern "C" {
-            fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
-        }
-
-        #[allow(rust_analyzer::inactive_code)]
+    pub fn new() -> Result<Self, TerminalPreparationError> {
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        return Err(Error::UnsupportedOperatingSystem);
+        return Err(TerminalPreparationError::UnsupportedOperatingSystem);
 
-        #[allow(rust_analyzer::inactive_code)]
-        #[cfg(target_os = "linux")]
-        const TIOCGWINSZ: c_ulong = 0x5413;
-
-        #[allow(rust_analyzer::inactive_code)]
-        #[cfg(target_os = "macos")]
-        const TIOCGWINSZ: c_ulong = 0x40087468;
-
-        #[allow(rust_analyzer::inactive_code)]
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        const TIOCGWINSZ: c_ulong = 0;
-
-        let size = unsafe {
-            let mut size = MaybeUninit::<WinSize>::uninit();
-            if ioctl(1, TIOCGWINSZ, size.as_mut_ptr()) != 0 {
-                return Err(Error::IoctlFailure);
-            }
-
-            let size = size.assume_init();
-            if !(size.ws_col > 0 && size.ws_row > 0) {
-                return Err(Error::BadTerminalSize);
-            }
-
-            size
-        };
-
-        let og_termios = unsafe {
-            let mut termios = MaybeUninit::<Termios>::uninit();
-            if tcgetattr(0, termios.as_mut_ptr()) != 0 {
-                return Err(Error::IoctlFailure);
-            }
-
-            termios.assume_init()
-        };
+        let size = terminal_size()?;
+        let og_termios = terminal_attributes()?;
 
         let mut raw = og_termios;
-        raw.c_lflag &= !(ECHO | ICANON);
+        raw.c_lflag &= !(libc::ECHO | libc::ICANON);
+        set_terminal_attributes(&raw)?;
 
-        unsafe {
-            if tcsetattr(0, TCSAFLUSH, &raw) != 0 {
-                return Err(Error::IoctlFailure);
-            }
-        }
+        let mut stdout = io::stdout();
+        stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
+        stdout.flush()?;
 
-        print!("{ENTER_ALT_SCREEN}");
-        io::stdout().flush().ok();
-
-        Ok(Terminal {
+        Ok(Self {
             width: size.ws_col,
             height: size.ws_row,
             og_termios,
@@ -175,11 +53,53 @@ impl Terminal {
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        print!("{LEAVE_ALT_SCREEN}");
-        io::stdout().flush().ok();
-
-        unsafe { 
-            tcsetattr(0, TCSAFLUSH, &self.og_termios) 
-        };
+        let _ = set_terminal_attributes(&self.og_termios);
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(LEAVE_ALT_SCREEN.as_bytes());
+        let _ = stdout.flush();
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn terminal_attributes() -> Result<libc::termios, TerminalPreparationError> {
+    let mut termios = MaybeUninit::<libc::termios>::uninit();
+    let result = unsafe { libc::tcgetattr(libc::STDIN_FILENO, termios.as_mut_ptr()) };
+
+    if result == -1 {
+        return Err(TerminalPreparationError::Io(io::Error::last_os_error()));
+    }
+
+    Ok(unsafe { termios.assume_init() })
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn set_terminal_attributes(
+    termios: &libc::termios,
+) -> Result<(), TerminalPreparationError> {
+    let result =
+        unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, termios) };
+    if result == -1 {
+        return Err(TerminalPreparationError::Io(io::Error::last_os_error()));
+    }
+
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn terminal_size() -> Result<libc::winsize, TerminalPreparationError> {
+    let mut size = MaybeUninit::<libc::winsize>::uninit();
+    let result = unsafe {
+        libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, size.as_mut_ptr())
+    };
+
+    if result == -1 {
+        return Err(TerminalPreparationError::Io(io::Error::last_os_error()));
+    }
+
+    let size = unsafe { size.assume_init() };
+    if size.ws_col == 0 || size.ws_row == 0 {
+        return Err(TerminalPreparationError::BadTerminalSize);
+    }
+
+    Ok(size)
 }

@@ -1,4 +1,5 @@
 mod char_buf;
+mod operation;
 mod terminal;
 
 use crate::terminal::Terminal;

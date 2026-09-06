@@ -16,29 +16,28 @@ enum OperationExecutionError {
     WrongOperandCount,
 }
 
-fn factorial(n: i64) -> Result<i64, OperationExecutionError> {
-    if n < 0 {
+fn divide(x: f64, y: f64) -> Result<f64, OperationExecutionError> {
+    if y == 0.0 {
+        return Err(OperationExecutionError::DivisionByZero);
+    }
+
+    Ok(x / y)
+}
+
+fn factorial(x: f64) -> Result<f64, OperationExecutionError> {
+    if x < 0.0 || x.fract() != 0.0 || x > i64::MAX as f64 {
         return Err(OperationExecutionError::InvalidInput);
     }
 
-    (1..=n)
-        .try_fold(1i64, |acc, x| acc.checked_mul(x))
-        .ok_or(OperationExecutionError::Overflow)
-}
-
-fn sum_int(x: i64, y: i64) -> Result<i64, OperationExecutionError> {
-    x.checked_add(y).ok_or(OperationExecutionError::Overflow)
-}
-
-fn sum_float(x: f64, y: f64) -> Result<f64, OperationExecutionError> {
-    Ok(x + y)
+    let n = x as u64;
+    Ok((1..=n).fold(1.0f64, |acc, x| acc * x as f64))
 }
 
 impl Operation {
-    fn execute_int(
+    fn execute(
         &self,
-        ops: impl IntoIterator<Item = i64>,
-    ) -> Result<i64, OperationExecutionError> {
+        ops: impl IntoIterator<Item = f64>,
+    ) -> Result<f64, OperationExecutionError> {
         let mut it = ops.into_iter();
         let Some(first) = it.next() else {
             return Err(OperationExecutionError::WrongOperandCount);
@@ -46,22 +45,19 @@ impl Operation {
 
         // TODO: This doesn't check whether the number of given arguments is correct yet
         match self {
-            Self::Factorial => factorial(first),
-            Self::Addition => it.try_fold(first, |acc, x| {
-                acc.checked_add(x).ok_or(OperationExecutionError::Overflow)
-            }),
-            Self::Division => todo!(),
-            Self::Multiplication => todo!(),
-            Self::Subtraction => todo!(),
-            Self::Power => todo!(),
-            Self::Root => todo!(),
-        }
-    }
+            Self::Addition => Ok(it.fold(first, |acc, x| acc + x)),
+            Self::Division => it.try_fold(first, divide),
+            Self::Factorial => {
+                if it.next().is_some() {
+                    return Err(OperationExecutionError::WrongOperandCount);
+                }
 
-    fn execute_float(
-        &self,
-        ops: impl IntoIterator<Item = f64>,
-    ) -> Result<f64, OperationExecutionError> {
-        todo!()
+                factorial(first)
+            },
+            Self::Multiplication => Ok(it.fold(first, |acc, x| acc * x)),
+            Self::Subtraction => Ok(it.fold(first, |acc, x| acc - x)),
+            Self::Power => Ok(it.fold(first, |acc, x| acc.powf(x))),
+            Self::Root => Ok(it.fold(first, |acc, x| acc.powf(1.0 / x))),
+        }
     }
 }

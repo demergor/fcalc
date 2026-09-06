@@ -1,14 +1,18 @@
+use core::fmt;
+use std::fmt::{Display, Formatter};
+
 #[derive(Clone, Copy, Debug)]
-enum Operation {
+pub enum Operation {
     Addition,
     Division,
-    Multiplication,
-    Subtraction,
-    Root,
-    Power,
     Factorial,
+    Multiplication,
+    Power,
+    Root,
+    Subtraction,
 }
 
+#[derive(Debug)]
 enum OperationExecutionError {
     DivisionByZero,
     InvalidInput,
@@ -35,7 +39,7 @@ fn factorial(x: f64) -> Result<f64, OperationExecutionError> {
 
 impl Operation {
     fn execute(
-        &self,
+        self,
         ops: impl IntoIterator<Item = f64>,
     ) -> Result<f64, OperationExecutionError> {
         let mut it = ops.into_iter();
@@ -43,7 +47,6 @@ impl Operation {
             return Err(OperationExecutionError::WrongOperandCount);
         };
 
-        // TODO: This doesn't check whether the number of given arguments is correct yet
         match self {
             Self::Addition => Ok(it.fold(first, |acc, x| acc + x)),
             Self::Division => it.try_fold(first, divide),
@@ -53,11 +56,50 @@ impl Operation {
                 }
 
                 factorial(first)
-            },
+            }
             Self::Multiplication => Ok(it.fold(first, |acc, x| acc * x)),
-            Self::Subtraction => Ok(it.fold(first, |acc, x| acc - x)),
             Self::Power => Ok(it.fold(first, |acc, x| acc.powf(x))),
             Self::Root => Ok(it.fold(first, |acc, x| acc.powf(1.0 / x))),
+            Self::Subtraction => Ok(it.fold(first, |acc, x| acc - x)),
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseOperationError {
+    InvalidCharacter(char),
+    EmptyInput,
+}
+
+impl TryFrom<char> for Operation {
+    type Error = ParseOperationError;
+
+    fn try_from(ch: char) -> Result<Self, Self::Error> {
+        match ch {
+            '+' => Ok(Self::Addition),
+            '/' | '÷' => Ok(Self::Division),
+            '!' => Ok(Self::Factorial),
+            '*' | '×' | '⋅' | '∗' => Ok(Self::Multiplication),
+            '^' => Ok(Self::Power),
+            '\\' | '√' => Ok(Self::Root),
+            '-' => Ok(Self::Subtraction),
+            _ => Err(ParseOperationError::InvalidCharacter(ch)),
+        }
+    }
+}
+
+impl Display for Operation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let c = match self {
+            Self::Addition => '+',
+            Self::Division => '/',
+            Self::Factorial => '!',
+            Self::Multiplication => '*',
+            Self::Power => '^',
+            Self::Root => '√',
+            Self::Subtraction => '-',
+        };
+
+        write!(f, "{c}")
     }
 }

@@ -1,4 +1,5 @@
 mod char_buf;
+mod fold_expression;
 mod operation;
 mod terminal;
 

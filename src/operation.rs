@@ -1,5 +1,8 @@
 use core::fmt;
-use std::fmt::{Display, Formatter};
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Operation {
@@ -13,12 +16,25 @@ pub enum Operation {
 }
 
 #[derive(Debug)]
-enum OperationExecutionError {
+pub enum OperationExecutionError {
     DivisionByZero,
     InvalidInput,
-    Overflow,
     WrongOperandCount,
 }
+
+impl Display for OperationExecutionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DivisionByZero => write!(f, "Division by zero!"),
+            Self::InvalidInput => write!(f, "Operation not defined for given input!"),
+            Self::WrongOperandCount => {
+                write!(f, "Wrong number of operands provided for given operator!")
+            }
+        }
+    }
+}
+
+impl Error for OperationExecutionError {}
 
 fn divide(x: f64, y: f64) -> Result<f64, OperationExecutionError> {
     if y == 0.0 {
@@ -38,11 +54,8 @@ fn factorial(x: f64) -> Result<f64, OperationExecutionError> {
 }
 
 impl Operation {
-    fn execute(
-        self,
-        ops: impl IntoIterator<Item = f64>,
-    ) -> Result<f64, OperationExecutionError> {
-        let mut it = ops.into_iter();
+    pub fn execute(self, ops: &[f64]) -> Result<f64, OperationExecutionError> {
+        let mut it = ops.iter().copied();
         let Some(first) = it.next() else {
             return Err(OperationExecutionError::WrongOperandCount);
         };
@@ -70,6 +83,20 @@ pub enum ParseOperationError {
     InvalidCharacter(char),
     EmptyInput,
 }
+
+impl Display for ParseOperationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCharacter(ch) => write!(
+                f,
+                "Parsing of operation failed due to following invalid character: {ch}"
+            ),
+            Self::EmptyInput => write!(f, "No operands provided!"),
+        }
+    }
+}
+
+impl Error for ParseOperationError {}
 
 impl TryFrom<char> for Operation {
     type Error = ParseOperationError;

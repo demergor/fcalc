@@ -1,10 +1,23 @@
-use crate::operation::{Operation, ParseOperationError};
+use core::fmt;
+use std::{
+    error::Error,
+    fmt::{Display, Formatter},
+};
+
+use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 
 pub struct FoldExpression {
     operands: Vec<f64>,
     operation: Operation,
 }
 
+impl FoldExpression {
+    pub fn evaluate(&self) -> Result<f64, OperationExecutionError> {
+        self.operation.execute(&self.operands)
+    }
+}
+
+#[derive(Debug)]
 pub enum ParseFoldExpressionError {
     InvalidCharacter(char),
     OperationError(ParseOperationError),
@@ -15,6 +28,23 @@ impl From<ParseOperationError> for ParseFoldExpressionError {
         Self::OperationError(e)
     }
 }
+
+impl Display for ParseFoldExpressionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCharacter(ch) => write!(
+                f,
+                "Parsing of fold expression failed due to following character: {ch}"
+            ),
+            Self::OperationError(e) => write!(
+                f,
+                "Parsing of fold expression failed at operation parsing step: {e}"
+            ),
+        }
+    }
+}
+
+impl Error for ParseFoldExpressionError {}
 
 impl TryFrom<&[char]> for FoldExpression {
     type Error = ParseFoldExpressionError;

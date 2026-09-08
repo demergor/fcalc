@@ -9,6 +9,7 @@ pub enum Operation {
     Addition,
     Division,
     Factorial,
+    // Logarithm,
     Multiplication,
     Power,
     Root,

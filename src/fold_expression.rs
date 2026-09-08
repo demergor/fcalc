@@ -6,6 +6,7 @@ use std::{
 
 use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 
+#[derive(Debug)]
 pub struct FoldExpression {
     operands: Vec<f64>,
     operation: Operation,
@@ -98,8 +99,12 @@ impl TryFrom<&[char]> for FoldExpression {
             comp_div *= if already_float { 10.0 } else { 1.0 };
         }
 
+        if !first_digit {
+            operands.push(cur / comp_div);
+        }
+
         Ok(FoldExpression {
-            operands: operands.into_iter().skip(1).collect(),
+            operands,
             operation,
         })
     }

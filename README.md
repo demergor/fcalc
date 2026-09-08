@@ -1,4 +1,6 @@
 Work In Progress: 
-- find out why the result of a fold expression always seems to be the second argument
+- implement thousands delimiters
+- implement rfolds
+- implement logarithm (what sign denotes logarithm?)
 - write tests for `FoldExpression`-parsing
 - add manual interruption handling (e.g. Ctrl + C) to invoke `Terminal::drop` for debugging purposes

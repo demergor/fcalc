@@ -1,4 +1,5 @@
 Work In Progress: 
+- complete byte parsing with queue-memory and utf-conversion
 - implement thousands delimiters
 - implement rfolds
 - implement logarithm (what sign denotes logarithm?)

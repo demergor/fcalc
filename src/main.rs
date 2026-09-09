@@ -1,5 +1,6 @@
 mod char_buf;
 mod fold_expression;
+mod io;
 mod operation;
 mod terminal;
 
@@ -21,6 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let fold_expression =
             FoldExpression::try_from(input.chars().collect::<Vec<char>>().as_slice())?;
         let result = fold_expression.evaluate()?;
+        println!("{fold_expression:?}");
         println!("{result}");
     }
 

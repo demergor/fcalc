@@ -1,5 +1,5 @@
 Work In Progress: 
-- complete byte parsing with queue-memory and utf-conversion
+- (complete byte parsing with queue-memory and utf-conversion) implement utf-start detection in src/io.rs)
 - implement thousands delimiters
 - implement rfolds
 - implement logarithm (what sign denotes logarithm?)

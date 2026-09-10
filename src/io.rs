@@ -3,10 +3,20 @@ use std::{
     io::{self, Read, Stdin},
 };
 
-use crate::io::Key::Char;
-
 const TIMEOUT_MS: i32 = 30;
 const ESC: u8 = 0x1b;
+
+// UTF8
+const ONE_BYTE_TEST: u8 = 0b1000_0000;
+const ONE_BYTE_EXPECTED: u8 = 0b0000_0000;
+const TWO_BYTE_TEST: u8 = 0b1100_0000;
+const TWO_BYTE_EXPECTED: u8 = 0b1110_0000;
+const THREE_BYTE_TEST: u8 = 0b1111_0000;
+const THREE_BYTE_EXPECTED: u8 = 0b1110_0000;
+const FOUR_BYTE_TEST: u8 = 0b1111_0000;
+const FOUR_BYTE_EXPECTED: u8 = 0b1111_0000;
+const CONTINUATION_BYTE_TEST: u8 = 0b1100_0000;
+const CONTINUATION_BYTE_EXPECTED: u8 = 0b1000_0000;
 
 pub enum Key {
     Char(char),
@@ -37,7 +47,6 @@ struct IoParser {
 }
 
 impl IoParser {
-    // TODO: Add utf8 starting byte detection 
     fn poll_key(&mut self) {
         let Ok(ready) = byte_ready(TIMEOUT_MS) else {
             return;
@@ -55,7 +64,18 @@ impl IoParser {
         match self.state {
             ParseState::Normal => match buf[0] {
                 ESC => self.state = ParseState::Escape,
-                // TODO: if unicode: transition to ParseState::Utf8 and return
+                byte if byte & TWO_BYTE_TEST == TWO_BYTE_EXPECTED => {
+                    self.multi_byte_buf.push(byte);
+                    self.state = ParseState::Utf8(1)
+                },
+                byte if byte & THREE_BYTE_TEST == THREE_BYTE_EXPECTED => {
+                    self.multi_byte_buf.push(byte);
+                    self.state = ParseState::Utf8(2)
+                },
+                byte if byte & FOUR_BYTE_TEST == FOUR_BYTE_EXPECTED => {
+                    self.multi_byte_buf.push(byte);
+                    self.state = ParseState::Utf8(3)
+                },
                 ch => self.pending_keys.push_back(Key::Char(char::from(ch))),
             },
             ParseState::Escape => match buf[0] {
@@ -67,25 +87,32 @@ impl IoParser {
                 }
             },
             ParseState::Utf8(remaining_bytes) => {
-                assert!(remaining_bytes <= 4 && remaining_bytes > 0);
+                assert!(remaining_bytes <= 3 && remaining_bytes > 0);
+
+                // Discard malformed utf8 code points
+                if buf[0] & CONTINUATION_BYTE_TEST != CONTINUATION_BYTE_EXPECTED {
+                    self.multi_byte_buf.clear();
+                    self.state = ParseState::Normal;
+                    return;
+                }
 
                 self.multi_byte_buf.push(buf[0]);
                 if remaining_bytes > 1 {
                     self.state = ParseState::Utf8(remaining_bytes - 1);
                 } else {
-                    self.state = ParseState::Normal;
-                    let Ok(str) = std::str::from_utf8(&self.multi_byte_buf) else {
+                    let Ok(s) = std::str::from_utf8(&self.multi_byte_buf) else {
                         self.multi_byte_buf.clear();
+                        self.state = ParseState::Normal;
                         return;
                     };
 
-                    let Some(multi_byte_ch) = str.chars().next() else {
+                    let Some(ch) = s.chars().next() else {
                         return;
                     };
 
-                    self.pending_keys
-                        .push_back(Key::Char(multi_byte_ch));
                     self.multi_byte_buf.clear();
+                    self.state = ParseState::Normal;
+                    self.pending_keys.push_back(Key::Char(ch));
                 };
             }
             ParseState::Csi => {

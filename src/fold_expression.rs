@@ -74,12 +74,16 @@ impl TryFrom<&[char]> for FoldExpression {
 
         while let Some(ch) = it.next() {
             match ch {
-                ch if ch.is_whitespace() && !first_digit => {
-                    operands.push(cur / comp_div);
-                    cur = 0.0;
-                    already_float = false;
-                    comp_div = 1.0;
-                    first_digit = true;
+                ch if ch.is_whitespace() => {
+                    if !first_digit {
+                        operands.push(cur / comp_div);
+                        cur = 0.0;
+                        already_float = false;
+                        comp_div = 1.0;
+                        first_digit = true;
+                    } else {
+                        continue;
+                    }
                 },
                 '.' if !already_float => already_float = true,
                 'r' => {
@@ -92,11 +96,10 @@ impl TryFrom<&[char]> for FoldExpression {
                 ch if let Some(digit) = ch.to_digit(10) => {
                     cur = cur * 10.0 + digit as f64;
                     first_digit = false;
+                    comp_div *= if already_float { 10.0 } else { 1.0 };
                 },
                 ch => return Err(ParseFoldExpressionError::InvalidCharacter(*ch)),
             }
-
-            comp_div *= if already_float { 10.0 } else { 1.0 };
         }
 
         if !first_digit {

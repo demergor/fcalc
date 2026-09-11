@@ -2,7 +2,7 @@ Work In Progress:
 - implement thousands delimiters
 - implement rfolds
 - write tests for `FoldExpression`-parsing
-- add manual interruption handling (e.g. Ctrl + C) to invoke `Terminal::drop` for debugging purposes
+- add manual interruption handling (e.g. Ctrl + C) to invoke `Terminal::drop`
 
 Planned features:
 - add functions 

@@ -70,30 +70,30 @@ impl TryFrom<&[char]> for FoldExpression {
         let mut already_float = false;
         let mut comp_div = 1.0;
         let mut first_digit = true;
+        let mut reverse = false;
 
         while let Some(ch) = it.next() {
-            if ch.is_whitespace() {
-                if !first_digit {
+            match ch {
+                ch if ch.is_whitespace() && !first_digit => {
                     operands.push(cur / comp_div);
                     cur = 0.0;
                     already_float = false;
                     comp_div = 1.0;
                     first_digit = true;
-                }
+                },
+                '.' if !already_float => already_float = true,
+                'r' => {
+                    if let Some(next) = it.next() {
+                        return Err(ParseFoldExpressionError::InvalidCharacter(*next));
+                    } 
 
-                continue;
-            }
-
-            if ch == &'.' && !already_float {
-                already_float = true;
-                continue;
-            }
-
-            if let Some(digit) = ch.to_digit(10) {
-                cur = cur * 10.0 + digit as f64;
-                first_digit = false;
-            } else {
-                return Err(ParseFoldExpressionError::InvalidCharacter(*ch));
+                    reverse = true;
+                },
+                ch if let Some(digit) = ch.to_digit(10) => {
+                    cur = cur * 10.0 + digit as f64;
+                    first_digit = false;
+                },
+                ch => return Err(ParseFoldExpressionError::InvalidCharacter(*ch)),
             }
 
             comp_div *= if already_float { 10.0 } else { 1.0 };
@@ -101,6 +101,10 @@ impl TryFrom<&[char]> for FoldExpression {
 
         if !first_digit {
             operands.push(cur / comp_div);
+        }
+
+        if reverse {
+            operands.reverse();
         }
 
         Ok(FoldExpression {

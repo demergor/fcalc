@@ -4,7 +4,8 @@ use std::{
 };
 
 const TIMEOUT_MS: i32 = 30;
-const ESC: u8 = 0x1b;
+const ESC: u8 = b'\x1b';
+const BACKSPACE: u8 = b'\x08';
 
 // UTF8
 const ONE_BYTE_TEST: u8 = 0b1000_0000;
@@ -22,6 +23,7 @@ pub enum Key {
     Char(char),
 
     Enter,
+    Backspace,
     Escape,
 
     ArrowUp,

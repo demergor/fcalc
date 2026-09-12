@@ -74,7 +74,13 @@ impl Operation {
             Self::Multiplication => Ok(it.fold(first, |acc, x| acc * x)),
             Self::Power => Ok(it.fold(first, |acc, x| acc.powf(x))),
             Self::Root => Ok(it.fold(first, |acc, x| acc.powf(1.0 / x))),
-            Self::Subtraction => Ok(it.fold(first, |acc, x| acc - x)),
+            Self::Subtraction => {
+                if let Some(next) = it.next() {
+                    Ok(it.fold(first - next, |acc, x| acc - x))
+                } else {
+                    Ok(-first)
+                }
+            }
         }
     }
 }

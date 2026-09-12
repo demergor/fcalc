@@ -1,5 +1,5 @@
 mod char_buf;
-mod fold_expression;
+mod fold_expr;
 mod io;
 mod operation;
 mod terminal;
@@ -7,12 +7,14 @@ mod terminal;
 use std::error::Error;
 use std::io::stdin;
 
-use crate::fold_expression::FoldExpression;
+use crate::fold_expr::FoldExpr;
 use crate::terminal::Terminal;
 
 use crate::char_buf::CharBuf;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    todo!()
+    /*
     loop {
         println!("Please enter your fold expression below:");
         let mut input = String::new();
@@ -20,11 +22,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .read_line(&mut input)
             .expect("Failed to read input!");
         let fold_expression =
-            FoldExpression::try_from(input.chars().collect::<Vec<char>>().as_slice())?;
+            FoldExpr::try_from(input.chars().collect::<Vec<char>>().as_slice())?;
         let result = fold_expression.evaluate()?;
         println!("{fold_expression:?}");
         println!("{result}");
     }
+    */
 
     /*
     let Ok(terminal) = Terminal::new() else {

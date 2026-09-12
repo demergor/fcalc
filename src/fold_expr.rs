@@ -8,18 +8,32 @@ use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 
 #[derive(Debug)]
 pub struct FoldExpr {
-    operation: Operation,
+    pub operation: Operation,
+    pub operands: Vec<f64>,
+    /*
     result: Option<f64>,
     parent: Option<usize>,
     children: Vec<usize>,
+    */
 }
 
+impl FoldExpr {
+    pub fn evaluate(&self) -> Result<f64, OperationExecutionError> {
+        self.operation.execute(&self.operands)
+    }
+}
+
+/*
 #[derive(Debug)]
 pub struct FoldExprArena {
     buf: Vec<FoldExpr>,
 }
 
 impl FoldExprArena {
+    pub fn new() -> FoldExprArena {
+        FoldExprArena { buf: Vec::new() }
+    }
+
     pub fn evaluate(&mut self, id: usize) -> Result<f64, OperationExecutionError> {
         if let Some(cached_result) = self.buf[id].result {
             return Ok(cached_result);
@@ -48,99 +62,55 @@ impl FoldExprArena {
             _ => (),
         }
 
-        let start = slice.iter().position(|ch| !ch.is_whitespace());
-        let end = slice.iter().rposition(|ch| !ch.is_whitespace());
-
-        let slice = match (start, end) {
-            (Some(start), Some(end)) => &slice[start..=end],
-            _ => &[],
-        };
-
-        let mut it = slice.iter();
-        let operation: Operation = match it.next() {
-            Some(ch) => Operation::try_from(*ch)?,
-            None => return Err(ParseOperationError::EmptyInput.into()),
-        };
-
-        let mut operands = Vec::new();
-        let mut cur: f64 = 0.0;
-        let mut already_float = false;
-        let mut comp_div = 1.0;
-        let mut first_digit = true;
-        let mut reverse = false;
-        let mut pos = 0;
-
-        while let Some(ch) = it.next() {
-            pos += 1;
-            match ch {
-                ch if ch.is_whitespace() => {
-                    if !first_digit {
-                        operands.push(cur / comp_div);
-                        cur = 0.0;
-                        already_float = false;
-                        comp_div = 1.0;
-                        first_digit = true;
-                    } else {
-                        continue;
-                    }
-                }
-                '.' if !already_float => already_float = true,
-                'r' => {
-                    if let Some(next) = it.next() {
-                        return Err(
-                            ParseFoldExprError::InvalidCharacter(*next, pos).into()
-                        );
-                    }
-
-                    reverse = true;
-                }
-                ch if let Some(digit) = ch.to_digit(10) => {
-                    cur = cur * 10.0 + digit as f64;
-                    first_digit = false;
-                    comp_div *= if already_float { 10.0 } else { 1.0 };
-                }
-                ch => return Err(ParseFoldExprError::InvalidCharacter(*ch, pos).into()),
-            }
-        }
-
-        if !first_digit {
-            operands.push(cur / comp_div);
-        }
-
-        if reverse {
-            operands.reverse();
-        }
-
-        let fold_expr = FoldExpr {
+        let (operation, operands) = parse(slice)?;
+        let fold_expr_id = self.buf.len();
+        self.buf.push(FoldExpr {
             operation,
             result: None,
             parent: parent_id,
             children: Vec::new(),
-        };
+        });
 
-        let id = self.buf.len();
-        self.buf.push(fold_expr);
+        for operand in operands {
+            self.buf.push(FoldExpr {
+                operation: Operation::Addition,
+                result: Some(operand),
+                parent: Some(fold_expr_id),
+                children: Vec::new(),
+            });
+        }
+
+        for i in fold_expr_id + 1..self.buf.len() {
+            self.buf[fold_expr_id].children.push(i);
+        }
 
         if let Some(parent_id) = parent_id {
-            self.buf[parent_id].children.push(id);
+            self.buf[parent_id].children.push(fold_expr_id);
         };
 
         Ok(())
     }
 
+    pub fn update(&mut self, slice: &[char], id: usize) -> Result<(), FoldExprError> {
+        let (operation, operands) = parse(slice)?;
+        let mut changed = operation == self.buf[id].operation;
+
+        for child_id in self.buf[id].children {
+            let cur_result = self.buf[child_id].evaluate()?;
+            if cur_result != 
+        }
+    }
+    
     pub fn remove(&mut self, id: usize) -> Result<(), FoldExprError> {
         if id >= self.buf.len() {
             return Err(FoldExprError::IdAccessError(id));
         }
 
         self.buf.swap_remove(id);
-
-        if self.buf[id].parent.is_none() {
-            return Ok(());
-        }
-
         let removed_id = self.buf.len();
-        let parent_id = self.buf[id].parent.unwrap();
+        let Some(parent_id) = self.buf[id].parent else {
+            return Ok(());
+        };
 
         for child_id in &mut self.buf[parent_id].children {
             if *child_id == removed_id {
@@ -152,6 +122,7 @@ impl FoldExprArena {
         Err(FoldExprError::ParentChildViolation(id, parent_id))
     }
 }
+*/
 
 #[derive(Debug)]
 pub enum FoldExprError {
@@ -177,16 +148,15 @@ impl Display for FoldExprError {
         match self {
             Self::IdAccessError(id) => {
                 write!(f, "Error accessing fold expression with ID {id}")
-            },
-            Self::ParentChildViolation(parent_id, child_id) => { 
+            }
+            Self::ParentChildViolation(parent_id, child_id) => {
                 write!(
                     f,
                     "Detected inconsistency in parent-child relationship between parent\
                      fold expression with ID {parent_id} and child fold expression with\
                      ID {child_id}"
                 )
-
-            },
+            }
             Self::ParseError(err) => write!(f, "Error parsing `FoldExpr`: {err}"),
         }
     }
@@ -224,3 +194,68 @@ impl Display for ParseFoldExprError {
 }
 
 impl Error for ParseFoldExprError {}
+
+fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
+    let start = slice.iter().position(|ch| !ch.is_whitespace());
+    let end = slice.iter().rposition(|ch| !ch.is_whitespace());
+
+    let slice = match (start, end) {
+        (Some(start), Some(end)) => &slice[start..=end],
+        _ => &[],
+    };
+
+    let mut it = slice.iter();
+    let operation: Operation = match it.next() {
+        Some(ch) => Operation::try_from(*ch)?,
+        None => return Err(ParseOperationError::EmptyInput.into()),
+    };
+
+    let mut operands = Vec::new();
+    let mut cur: f64 = 0.0;
+    let mut already_float = false;
+    let mut comp_div = 1.0;
+    let mut first_digit = true;
+    let mut reverse = false;
+    let mut pos = 0;
+
+    while let Some(ch) = it.next() {
+        pos += 1;
+        match ch {
+            ch if ch.is_whitespace() => {
+                if !first_digit {
+                    operands.push(cur / comp_div);
+                    cur = 0.0;
+                    already_float = false;
+                    comp_div = 1.0;
+                    first_digit = true;
+                } else {
+                    continue;
+                }
+            }
+            '.' if !already_float => already_float = true,
+            'r' => {
+                if let Some(next) = it.next() {
+                    return Err(ParseFoldExprError::InvalidCharacter(*next, pos).into());
+                }
+
+                reverse = true;
+            }
+            ch if let Some(digit) = ch.to_digit(10) => {
+                cur = cur * 10.0 + digit as f64;
+                first_digit = false;
+                comp_div *= if already_float { 10.0 } else { 1.0 };
+            }
+            ch => return Err(ParseFoldExprError::InvalidCharacter(*ch, pos).into()),
+        }
+    }
+
+    if !first_digit {
+        operands.push(cur / comp_div);
+    }
+
+    if reverse {
+        operands.reverse();
+    }
+
+    Ok((operation, operands))
+}

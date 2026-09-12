@@ -1,4 +1,4 @@
-mod char_buf;
+mod editor;
 mod fold_expr;
 mod io;
 mod operation;
@@ -10,7 +10,7 @@ use std::io::stdin;
 use crate::fold_expr::FoldExpr;
 use crate::terminal::Terminal;
 
-use crate::char_buf::CharBuf;
+use crate::editor::Editor;
 
 fn main() -> Result<(), Box<dyn Error>> {
     todo!()
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("Error preparing the terminal!");
         return;
     };
-    let cbuf = CharBuf::new(&terminal);
+    let cbuf = Editor::new(&terminal);
 
     let height = terminal.height;
     let width = terminal.width;

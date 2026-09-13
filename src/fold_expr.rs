@@ -44,7 +44,7 @@ impl FoldExprArena {
         &mut self,
         slice: &[char],
         parent_id: Option<usize>,
-    ) -> Result<(), FoldExprError> {
+    ) -> Result<usize, FoldExprError> {
         match parent_id {
             Some(id) if id >= self.buf.len() => {
                 return Err(FoldExprError::IdAccessError(id))
@@ -78,10 +78,12 @@ impl FoldExprArena {
             self.buf[parent_id].children.push(fold_expr_id);
         };
 
-        Ok(())
+        Ok(fold_expr_id)
     }
 
-    pub fn remove(&mut self, id: usize) -> Result<(), FoldExprError> {
+    /// Removes the `FoldExpression` with given @param id and returns the previous ID of 
+    /// the `FoldExpression` that is now associated with @param id
+    pub fn remove(&mut self, id: usize) -> Result<usize, FoldExprError> {
         if id >= self.buf.len() {
             return Err(FoldExprError::IdAccessError(id));
         }
@@ -89,13 +91,14 @@ impl FoldExprArena {
         self.buf.swap_remove(id);
         let removed_id = self.buf.len();
         let Some(parent_id) = self.buf[id].parent else {
-            return Ok(());
+            return Ok(removed_id);
         };
 
+        // The former last element now has a new ID: the parent needs to be updated
         for child_id in &mut self.buf[parent_id].children {
             if *child_id == removed_id {
                 *child_id = id;
-                return Ok(());
+                return Ok(removed_id);
             }
         }
 

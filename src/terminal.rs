@@ -3,6 +3,9 @@ use std::{
     mem::MaybeUninit,
 };
 
+pub const SAVE_CURSOR_POS: &str = "\x1b7";
+pub const RESTORE_CURSOR_POS: &str = "\x1b8";
+
 const ENTER_ALT_SCREEN: &str = "\x1b[?1049h";
 const LEAVE_ALT_SCREEN: &str = "\x1b[?1049l";
 

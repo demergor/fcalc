@@ -10,6 +10,3 @@ Planned features:
     - add metafunctions to those functions, like argc(...) to be able to make more complex function definitions possible
     - add predefined functions like sum(x...), product(x...), log(x, y) (maybe add an operator for that as well), etc.
 - add persistent variables/constants
-
-Just finished: 
-- implemented rfolds

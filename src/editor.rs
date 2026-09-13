@@ -1,8 +1,8 @@
 use crate::{
-    fold_expr::FoldExpr,
+    fold_expr::{FoldExpr, FoldExprArena},
     io::Key,
     operation::{Operation, OperationExecutionError},
-    terminal::Terminal,
+    terminal::{self, Terminal},
 };
 
 pub struct Editor {
@@ -12,7 +12,8 @@ pub struct Editor {
     cur_pos: usize,
     cur_operand: Option<usize>,
 
-    fold_expr: FoldExpr,
+    fold_exprs: FoldExprArena,
+    cur_fold_expr_id: Option<usize>,
     last_result: Option<FoldExpr>,
 
     width: usize,
@@ -29,10 +30,8 @@ impl Editor {
             mode: EditorMode::Normal,
             cur_pos: 0,
             cur_operand: None,
-            fold_expr: FoldExpr {
-                operation: Operation::Addition,
-                operands: Vec::new(),
-            },
+            fold_exprs: FoldExprArena::new(),
+            cur_fold_expr_id: None,
             last_result: None,
             width,
             height,
@@ -41,9 +40,12 @@ impl Editor {
 
     pub fn update(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match self.mode {
-            EditorMode::Insert => self.handle_insert(key),
-            EditorMode::Normal => self.handle_normal(key),
+            EditorMode::Insert => self.handle_insert(key)?,
+            EditorMode::Normal => self.handle_normal(key)?,
         }
+
+        self.render();
+        Ok(())
     }
 
     fn handle_insert(&mut self, key: Key) -> Result<(), OperationExecutionError> {
@@ -52,14 +54,32 @@ impl Editor {
                 self.mode = EditorMode::Normal;
             },
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
-                self.fold_expr.operation = op;
+                if let Some(id) = self.cur_fold_expr_id {
+                    self.fold_exprs.buf[id].operation = op;
+                } else {
+                    self.cur_fold_expr_id = Some(self.fold_exprs.init(op));
+                }
             },
             Key::Enter => {
-                // evaluate and display result (local)
-                todo!()
+                let Some(id) = self.cur_fold_expr_id else {
+                    return Ok(());
+                };
+
+                let result = self.fold_exprs.evaluate(id)?;
+                self.display_local_result(result);
             },
             Key::Backspace => {
-                self.buf[self.cur_pos] = ' ';
+                let Some(id) = self.cur_fold_expr_id else {
+                    return Ok(());
+                };
+
+                if !self.buf[self.cur_pos].is_whitespace() {
+                    self.buf[self.cur_pos] = ' ';
+
+                }
+
+                // TODO: Call `FoldExprArena::update` to re-parse the expression and
+                // display/render the new result
                 self.cur_pos -= 1;
             },
             Key::ArrowRight => {
@@ -89,12 +109,36 @@ impl Editor {
             },
             Key::Char('=') => {
                 // evaluate and display result (global)
-                todo!()
+                let Some(root_id) = self.fold_exprs.root_id() else {
+                    self.display_info("No expression to evaluate");
+                    return Ok(());
+                };
+
+                let result = self.fold_exprs.evaluate(root_id)?;
+                self.display_global_result(result);
             },
-            _ => ()
+            _ => (),
         }
 
         Ok(())
+    }
+
+    fn render(&self) {
+        print!("{}", terminal::SAVE_CURSOR_POS);
+        todo!();
+        print!("{}", terminal::RESTORE_CURSOR_POS);
+    }
+
+    fn display_info(&self, _s: &str) {
+        todo!();
+    }
+
+    fn display_global_result(&self, _value: f64) {
+        todo!();
+    }
+
+    fn display_local_result(&self, _value: f64) {
+        todo!();
     }
 
     fn clear(&mut self) {

@@ -9,24 +9,14 @@ use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 #[derive(Debug)]
 pub struct FoldExpr {
     pub operation: Operation,
-    pub operands: Vec<f64>,
-    /*
     result: Option<f64>,
     parent: Option<usize>,
     children: Vec<usize>,
-    */
 }
 
-impl FoldExpr {
-    pub fn evaluate(&self) -> Result<f64, OperationExecutionError> {
-        self.operation.execute(&self.operands)
-    }
-}
-
-/*
 #[derive(Debug)]
 pub struct FoldExprArena {
-    buf: Vec<FoldExpr>,
+    pub buf: Vec<FoldExpr>,
 }
 
 impl FoldExprArena {
@@ -91,16 +81,6 @@ impl FoldExprArena {
         Ok(())
     }
 
-    pub fn update(&mut self, slice: &[char], id: usize) -> Result<(), FoldExprError> {
-        let (operation, operands) = parse(slice)?;
-        let mut changed = operation == self.buf[id].operation;
-
-        for child_id in self.buf[id].children {
-            let cur_result = self.buf[child_id].evaluate()?;
-            if cur_result != 
-        }
-    }
-    
     pub fn remove(&mut self, id: usize) -> Result<(), FoldExprError> {
         if id >= self.buf.len() {
             return Err(FoldExprError::IdAccessError(id));
@@ -121,8 +101,58 @@ impl FoldExprArena {
 
         Err(FoldExprError::ParentChildViolation(id, parent_id))
     }
+
+    pub fn update(&mut self, slice: &[char], id: usize) -> Result<(), FoldExprError> {
+        if id >= self.buf.len() {
+            return Err(FoldExprError::IdAccessError(id));
+        }
+
+        let (operation, operands) = parse(slice)?;
+        self.buf[id].operation = operation;
+
+        for child_id in self.buf[id].children.clone() {
+            self.remove(child_id)?;
+        }
+
+        self.buf[id].children.clear();
+        for i in self.buf.len()..self.buf.len() + operands.len() {
+            self.buf.push(FoldExpr {
+                operation: Operation::Addition,
+                result: None,
+                parent: Some(id),
+                children: Vec::new(),
+            });
+            self.buf[id].children.push(i);
+        }
+
+        Ok(())
+    }
+
+    pub fn root_id(&self) -> Option<usize> {
+        if self.buf.is_empty() {
+            return None;
+        }
+
+        let mut cur_id = 0;
+        while let Some(parent_id) = self.buf[cur_id].parent {
+            cur_id = parent_id;
+        }
+
+        Some(cur_id)
+    }
+
+    pub fn init(&mut self, op: Operation) -> usize {
+        self.buf.clear();
+        self.buf.push(FoldExpr {
+            operation: op,
+            result: None,
+            parent: None,
+            children: Vec::new(),
+        });
+
+        self.buf.len() - 1
+    }
 }
-*/
 
 #[derive(Debug)]
 pub enum FoldExprError {

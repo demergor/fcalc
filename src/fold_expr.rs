@@ -40,6 +40,22 @@ impl FoldExprArena {
         Ok(result)
     }
 
+    pub fn child_id(
+        &self,
+        id: usize,
+        child_idx: usize,
+    ) -> Result<usize, FoldExprError> {
+        if id >= self.buf.len() {
+            return Err(FoldExprError::IdAccessError(id));
+        }
+
+        if child_idx >= self.buf[id].children.len() {
+            return Err(FoldExprError::OperandAccessError(id, child_idx));
+        }
+
+        Ok(self.buf[id].children[child_idx])
+    }
+
     pub fn add(
         &mut self,
         slice: &[char],
@@ -81,7 +97,7 @@ impl FoldExprArena {
         Ok(fold_expr_id)
     }
 
-    /// Removes the `FoldExpression` with given @param id and returns the previous ID of 
+    /// Removes the `FoldExpression` with given @param id and returns the previous ID of
     /// the `FoldExpression` that is now associated with @param id
     pub fn remove(&mut self, id: usize) -> Result<usize, FoldExprError> {
         if id >= self.buf.len() {
@@ -160,6 +176,7 @@ impl FoldExprArena {
 #[derive(Debug)]
 pub enum FoldExprError {
     IdAccessError(usize),
+    OperandAccessError(usize, usize),
     ParentChildViolation(usize, usize),
     ParseError(ParseFoldExprError),
 }
@@ -180,14 +197,20 @@ impl Display for FoldExprError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::IdAccessError(id) => {
-                write!(f, "Error accessing fold expression with ID {id}")
+                write!(f, "Error accessing fold expression {id}")
+            }
+            Self::OperandAccessError(id, child_idx) => {
+                write!(
+                    f,
+                    "Fold expression {} doesn't have an operand with index {}!",
+                    id, child_idx
+                )
             }
             Self::ParentChildViolation(parent_id, child_id) => {
                 write!(
                     f,
                     "Detected inconsistency in parent-child relationship between parent\
-                     fold expression with ID {parent_id} and child fold expression with\
-                     ID {child_id}"
+                     fold expression {parent_id} and child fold expression {child_id}"
                 )
             }
             Self::ParseError(err) => write!(f, "Error parsing `FoldExpr`: {err}"),

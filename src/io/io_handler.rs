@@ -1,3 +1,5 @@
+use std::cmp::{max, min};
+
 use crate::{
     fold_expr::{FoldExpr, FoldExprArena},
     io::Key,
@@ -5,16 +7,9 @@ use crate::{
     terminal::{self, Terminal},
 };
 
-struct FoldExprPosData {
-    id: &usize,
-    start_pos: usize,
-    end_pos: usize,
-    cur_operand: Option<usize>,
-}
-
-pub struct Editor {
+pub struct IoHandler {
     buf: Vec<char>,
-    mode: EditorMode,
+    mode: IoHandlerMode,
     cur_pos: usize,
 
     fold_exprs: FoldExprArena,
@@ -25,14 +20,14 @@ pub struct Editor {
     height: usize,
 }
 
-impl Editor {
-    pub fn new(bounds: &Terminal) -> Editor {
+impl IoHandler {
+    pub fn new(bounds: &Terminal) -> IoHandler {
         let height = usize::from(bounds.height);
         let width = usize::from(bounds.width);
 
-        Editor {
+        IoHandler {
             buf: vec![' '; width * height],
-            mode: EditorMode::Normal,
+            mode: IoHandlerMode::Normal,
             cur_pos: 0,
             fold_exprs: FoldExprArena::new(),
             open_fold_exprs: Vec::new(),
@@ -44,8 +39,8 @@ impl Editor {
 
     pub fn update(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match self.mode {
-            EditorMode::Insert => self.handle_insert(key)?,
-            EditorMode::Normal => self.handle_normal(key)?,
+            IoHandlerMode::Insert => self.handle_insert(key)?,
+            IoHandlerMode::Normal => self.handle_normal(key)?,
         }
 
         self.render();
@@ -55,13 +50,13 @@ impl Editor {
     fn handle_insert(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match key {
             Key::Escape => {
-                self.mode = EditorMode::Normal;
+                self.mode = IoHandlerMode::Normal;
             }
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
                 let Some(fe_data) = self.open_fold_exprs.last() else {
                     let id = self.fold_exprs.init(op);
                     self.open_fold_exprs.push(FoldExprPosData {
-                        id: &id,
+                        id: id,
                         start_pos: self.cur_pos,
                         end_pos: self.cur_pos + 1,
                         cur_operand: None,
@@ -78,7 +73,7 @@ impl Editor {
                 }
 
                 let id = self.open_fold_exprs.last().unwrap().id;
-                let result = self.fold_exprs.evaluate(*id)?;
+                let result = self.fold_exprs.evaluate(id)?;
                 self.display_local_result(result);
             }
             Key::Backspace => {
@@ -92,15 +87,16 @@ impl Editor {
 
                 // TODO: Call `FoldExprArena::update` to re-parse the expression and
                 // display/render the new result
-
+                // TODO: Check bounds
                 // TODO: Shift everything in the bufline to the left, not just the cursor
                 self.cur_pos -= 1;
             }
             Key::ArrowRight => {
-                self.cur_pos -= 1;
+                self.cur_pos = min(self.buf.len() - 1, self.cur_pos + 1);
+                // self.buf.len() 
             }
             Key::ArrowLeft => {
-                self.cur_pos += 1;
+                self.cur_pos = max(0, self.cur_pos - 1);
             }
             _ => (),
         }
@@ -111,7 +107,7 @@ impl Editor {
     fn handle_normal(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match key {
             Key::Char('i') => {
-                self.mode = EditorMode::Insert;
+                self.mode = IoHandlerMode::Insert;
             }
             Key::Char('c') => {
                 // clear
@@ -119,12 +115,19 @@ impl Editor {
             }
             Key::Char('e') => {
                 // edit current operand
-                let Some(expr_data) = self.open_fold_exprs.last() else {
+                let Some(&FoldExprPosData {
+                    id,
+                    cur_operand: Some(operand),
+                    ..
+                }) = self.open_fold_exprs.last()
+                else {
                     return Ok(());
                 };
 
-                let child_id =
-                    self.fold_exprs.buf[expr_data.id].children[expr_data.cur_operand];
+                let child_id = self.fold_exprs.child_id(id, operand);
+                self.under_cursor().len();
+
+                self.scroll_down(2);
 
                 // TODO: Handle placement of new inline `FoldExpr` (think about what
                 // should happen when there is no more vertical space for a new expr)
@@ -177,13 +180,41 @@ impl Editor {
         todo!();
     }
 
+    fn under_cursor(&self) -> std::ops::Range<usize> {
+        if self.buf[self.cur_pos].is_whitespace() {
+            return self.cur_pos..self.cur_pos;
+        }
+
+        let mut start = self.cur_pos;
+        while start >= 0 && self.buf[start].is_whitespace() {
+            start -= 1;
+        }
+
+        let mut end = self.cur_pos;
+        for pos in self.cur_pos..self.buf.len() {
+            if self.buf[pos].is_whitespace() {
+                end = pos;
+                break;
+            }
+        }
+
+        start..end
+    }
+
     fn clear(&mut self) {
         self.buf.fill(' ');
         self.cur_pos = 0;
     }
 }
 
-enum EditorMode {
+struct FoldExprPosData {
+    id: usize,
+    start_pos: usize,
+    end_pos: usize,
+    cur_operand: Option<usize>,
+}
+
+enum IoHandlerMode {
     Insert,
     Normal,
 }

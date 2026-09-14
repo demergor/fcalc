@@ -1,11 +1,9 @@
-mod editor;
 mod fold_expr;
 mod io;
 mod operation;
 mod terminal;
 
 use std::error::Error;
-use std::io::stdin;
 
 use crate::fold_expr::FoldExpr;
 use crate::terminal::Terminal;

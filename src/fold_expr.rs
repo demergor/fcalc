@@ -9,9 +9,24 @@ use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 #[derive(Debug)]
 pub struct FoldExpr {
     pub operation: Operation,
+    operands: Vec<f64>,
+    cur_operand: Option<usize>,
+
+    // Below is what's needed only for the Arena-Impl
     result: Option<f64>,
     parent: Option<usize>,
     children: Vec<usize>,
+}
+
+impl Display for FoldExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ", self.operation)?;
+        for op in &self.operands {
+            write!(f, "{op} ")?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -269,6 +284,7 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
     let mut operands = Vec::new();
     let mut cur: f64 = 0.0;
     let mut already_float = false;
+    let mut already_negative = false;
     let mut comp_div = 1.0;
     let mut first_digit = true;
     let mut reverse = false;
@@ -279,9 +295,14 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
         match ch {
             ch if ch.is_whitespace() => {
                 if !first_digit {
-                    operands.push(cur / comp_div);
+                    operands.push(if already_negative {
+                        -cur / comp_div
+                    } else {
+                        cur / comp_div
+                    });
                     cur = 0.0;
                     already_float = false;
+                    already_negative = false;
                     comp_div = 1.0;
                     first_digit = true;
                 } else {
@@ -296,6 +317,9 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
 
                 reverse = true;
             }
+            '-' if !already_negative => {
+                already_negative = true;
+            }
             ch if let Some(digit) = ch.to_digit(10) => {
                 cur = cur * 10.0 + digit as f64;
                 first_digit = false;
@@ -306,7 +330,11 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
     }
 
     if !first_digit {
-        operands.push(cur / comp_div);
+        operands.push(if already_negative {
+            -cur / comp_div
+        } else {
+            cur / comp_div
+        });
     }
 
     if reverse {

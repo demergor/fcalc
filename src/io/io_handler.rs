@@ -9,7 +9,7 @@ use crate::{
 
 pub struct IoHandler {
     buf: Vec<char>,
-    mode: IoHandlerMode,
+    mode: Mode,
     cur_pos: usize,
 
     fold_exprs: FoldExprArena,
@@ -27,7 +27,7 @@ impl IoHandler {
 
         IoHandler {
             buf: vec![' '; width * height],
-            mode: IoHandlerMode::Normal,
+            mode: Mode::Normal,
             cur_pos: 0,
             fold_exprs: FoldExprArena::new(),
             open_fold_exprs: Vec::new(),
@@ -39,8 +39,8 @@ impl IoHandler {
 
     pub fn update(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match self.mode {
-            IoHandlerMode::Insert => self.handle_insert(key)?,
-            IoHandlerMode::Normal => self.handle_normal(key)?,
+            Mode::Insert => self.handle_insert(key)?,
+            Mode::Normal => self.handle_normal(key)?,
         }
 
         self.render();
@@ -50,7 +50,7 @@ impl IoHandler {
     fn handle_insert(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match key {
             Key::Escape => {
-                self.mode = IoHandlerMode::Normal;
+                self.mode = Mode::Normal;
             }
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
                 let Some(fe_data) = self.open_fold_exprs.last() else {
@@ -107,7 +107,7 @@ impl IoHandler {
     fn handle_normal(&mut self, key: Key) -> Result<(), OperationExecutionError> {
         match key {
             Key::Char('i') => {
-                self.mode = IoHandlerMode::Insert;
+                self.mode = Mode::Insert;
             }
             Key::Char('c') => {
                 // clear
@@ -214,7 +214,7 @@ struct FoldExprPosData {
     cur_operand: Option<usize>,
 }
 
-enum IoHandlerMode {
+enum Mode {
     Insert,
     Normal,
 }

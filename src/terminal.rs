@@ -3,6 +3,7 @@ use std::{
     mem::MaybeUninit,
 };
 
+pub const ESC: u8 = b'\x1b';
 pub const SAVE_CURSOR_POS: &str = "\x1b7";
 pub const RESTORE_CURSOR_POS: &str = "\x1b8";
 
@@ -51,6 +52,21 @@ impl Terminal {
             height: size.ws_row,
             og_termios,
         })
+    }
+
+    pub fn byte_ready(timeout_ms: i32) -> io::Result<bool> {
+        let mut pollfd = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        let result = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(result > 0 && (pollfd.events & libc::POLLIN) != 0)
     }
 }
 

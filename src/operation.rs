@@ -16,6 +16,22 @@ pub enum Operation {
     Subtraction,
 }
 
+impl Display for Operation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let c = match self {
+            Self::Addition => '+',
+            Self::Division => '/',
+            Self::Factorial => '!',
+            Self::Multiplication => '*',
+            Self::Power => '^',
+            Self::Root => '√',
+            Self::Subtraction => '-',
+        };
+
+        write!(f, "{c}")
+    }
+}
+
 #[derive(Debug)]
 pub enum OperationExecutionError {
     DivisionByZero,
@@ -119,21 +135,5 @@ impl TryFrom<char> for Operation {
             '-' => Ok(Self::Subtraction),
             _ => Err(ParseOperationError::InvalidCharacter(ch)),
         }
-    }
-}
-
-impl Display for Operation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let c = match self {
-            Self::Addition => '+',
-            Self::Division => '/',
-            Self::Factorial => '!',
-            Self::Multiplication => '*',
-            Self::Power => '^',
-            Self::Root => '√',
-            Self::Subtraction => '-',
-        };
-
-        write!(f, "{c}")
     }
 }

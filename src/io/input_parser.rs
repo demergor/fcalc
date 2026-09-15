@@ -1,12 +1,11 @@
 use std::{
     collections::VecDeque,
-    io::{self, Read, Stdin},
+    io::{Read, Stdin},
 };
 
-use crate::io::Key;
+use crate::{io::Key, terminal::{self, Terminal}};
 
 const TIMEOUT_MS: i32 = 30;
-const ESC: u8 = b'\x1b';
 const BACKSPACE: u8 = b'\x08';
 
 // UTF8
@@ -31,7 +30,7 @@ pub struct InputParser {
 
 impl InputParser {
     fn poll_key(&mut self) {
-        let Ok(ready) = byte_ready(TIMEOUT_MS) else {
+        let Ok(ready) = Terminal::byte_ready(TIMEOUT_MS) else {
             return;
         };
 
@@ -46,7 +45,7 @@ impl InputParser {
 
         match self.state {
             ParseState::Normal => match buf[0] {
-                ESC => self.state = ParseState::Escape,
+                terminal::ESC => self.state = ParseState::Escape,
                 byte if byte & TWO_BYTE_TEST == TWO_BYTE_EXPECTED => {
                     self.multi_byte_buf.push(byte);
                     self.state = ParseState::Utf8(1)
@@ -63,7 +62,7 @@ impl InputParser {
             },
             ParseState::Escape => match buf[0] {
                 b'[' => self.state = ParseState::Csi,
-                ESC => self.pending_keys.push_back(Key::Escape),
+                terminal::ESC => self.pending_keys.push_back(Key::Escape),
                 ch => {
                     self.state = ParseState::Normal;
                     self.pending_keys.push_back(Key::Char(char::from(ch)));
@@ -119,19 +118,4 @@ enum ParseState {
     Escape,
     Utf8(u8),
     Normal,
-}
-
-fn byte_ready(timeout_ms: i32) -> io::Result<bool> {
-    let mut pollfd = libc::pollfd {
-        fd: libc::STDIN_FILENO,
-        events: libc::POLLIN,
-        revents: 0,
-    };
-
-    let result = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-    if result < 0 {
-        return Err(io::Error::last_os_error());
-    }
-
-    Ok(result > 0 && (pollfd.events & libc::POLLIN) != 0)
 }

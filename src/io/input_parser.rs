@@ -88,9 +88,14 @@ impl InputParser {
                         return;
                     };
 
-                    let Some(ch) = s.chars().next() else {
+                    let mut it = s.chars();
+                    let Some(ch) = it.next() else {
                         return;
                     };
+
+                    if it.next().is_some() {
+                        panic!("Malformed UTF-8 sequence!");
+                    }
 
                     self.multi_byte_buf.clear();
                     self.state = ParseState::Normal;

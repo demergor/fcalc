@@ -9,11 +9,36 @@ pub enum Operation {
     Addition,
     Division,
     Factorial,
-    // Logarithm,
     Multiplication,
     Power,
     Root,
     Subtraction,
+}
+
+impl Operation {
+    pub fn is_unary(&self) -> bool {
+        match self {
+            Self::Factorial => true,
+            _ => false,
+        }
+    }
+}
+
+impl TryFrom<char> for Operation {
+    type Error = ParseOperationError;
+
+    fn try_from(ch: char) -> Result<Self, Self::Error> {
+        match ch {
+            '+' => Ok(Self::Addition),
+            '/' | '÷' => Ok(Self::Division),
+            '!' => Ok(Self::Factorial),
+            '*' | '×' | '⋅' | '∗' => Ok(Self::Multiplication),
+            '^' => Ok(Self::Power),
+            '\\' | '√' => Ok(Self::Root),
+            '-' => Ok(Self::Subtraction),
+            _ => Err(ParseOperationError::InvalidCharacter(ch)),
+        }
+    }
 }
 
 impl Display for Operation {
@@ -120,20 +145,3 @@ impl Display for ParseOperationError {
 }
 
 impl Error for ParseOperationError {}
-
-impl TryFrom<char> for Operation {
-    type Error = ParseOperationError;
-
-    fn try_from(ch: char) -> Result<Self, Self::Error> {
-        match ch {
-            '+' => Ok(Self::Addition),
-            '/' | '÷' => Ok(Self::Division),
-            '!' => Ok(Self::Factorial),
-            '*' | '×' | '⋅' | '∗' => Ok(Self::Multiplication),
-            '^' => Ok(Self::Power),
-            '\\' | '√' => Ok(Self::Root),
-            '-' => Ok(Self::Subtraction),
-            _ => Err(ParseOperationError::InvalidCharacter(ch)),
-        }
-    }
-}

@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     error::Error,
-    fmt::{Display, Formatter},
+    fmt::{Display, Formatter, Write},
 };
 
 use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
@@ -18,17 +18,139 @@ pub struct FoldExpr {
     children: Vec<usize>,
 }
 
+impl FoldExpr {
+    pub fn evaluate(&self) -> Result<f64, OperationExecutionError> {
+        self.operation.execute(&self.operands)
+    }
+
+    pub fn reverse(&mut self) {
+        self.operands.reverse();
+    }
+
+    pub fn write_chars(
+        &self,
+        buf: &mut Vec<char>,
+        highlight_op: bool,
+    ) -> std::fmt::Result {
+        const RED: &str = "\x1b[93m";
+        const RESET: &str = "\x1b[0m";
+
+        buf.clear();
+        let mut cw = CharWriter { buf };
+        write!(cw, "{}", self.operation)?;
+
+        let op_idx = match self.cur_operand {
+            Some(idx) if idx < self.operands.len() => idx,
+            None if self.operands.is_empty() => return Ok(()),
+            Some(idx) => panic!(
+                "Invalid index stored as current operand to `FoldExpr`: \
+                index is {idx}, but only {} operands exist!",
+                self.operands.len()
+            ),
+            None => panic!(
+                "No current operand assigned even though candidate exists: \
+                Number of available operands: {}",
+                self.operands.len()
+            ),
+        };
+
+        for i in 0..self.operands.len() {
+            if !self.operation.is_unary() {
+                write!(cw, " ")?;
+            }
+
+            if op_idx == i && highlight_op {
+                write!(cw, "{RED}{}{RESET}", self.operands[i])?;
+            } else {
+                write!(cw, "{}", self.operands[i])?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn collapse(&mut self) -> Result<(), OperationExecutionError> {
+        let result = self.evaluate()?;
+        self.operation = Operation::Addition;
+        self.operands.clear();
+        self.operands.push(result);
+        self.cur_operand = Some(0);
+
+        Ok(())
+    }
+
+    pub fn change_operand(&mut self, new_val: f64) -> bool {
+        let Some(cur_operand) = self.cur_operand else {
+            panic!("No current operand to change in fold expression!");
+        };
+
+        let dirty = new_val != self.operands[cur_operand];
+        if dirty {
+            self.operands[cur_operand] = new_val;
+        }
+
+        dirty
+    }
+
+    pub fn next_operand(&mut self) -> Option<usize> {
+        let Some(id) = self.cur_operand else {
+            assert!(!self.operands.is_empty());
+            return None;
+        };
+
+        self.cur_operand = Some((id + 1) % self.operands.len());
+
+        self.cur_operand
+    }
+
+    pub fn previous_operand(&mut self) -> Option<usize> {
+        let Some(id) = self.cur_operand else {
+            assert!(!self.operands.is_empty());
+            return None;
+        };
+
+        self.cur_operand = Some(if id == 0 {
+            self.operands.len() - 1
+        } else {
+            id - 1
+        });
+
+        self.cur_operand
+    }
+}
+
+impl Default for FoldExpr {
+    fn default() -> Self {
+        Self {
+            operation: Operation::Addition,
+            operands: Vec::new(),
+            cur_operand: None,
+            result: None,
+            parent: None,
+            children: Vec::new(),
+        }
+    }
+}
+
 impl Display for FoldExpr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ", self.operation)?;
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "\x1b[1m{}\x1b[0m", self.operation)?;
+        let mut first = true;
+
         for op in &self.operands {
-            write!(f, "{op} ")?;
+            if first && !self.operation.is_unary() {
+                write!(f, " ")?;
+                first = false;
+            }
+
+            write!(f, "{op}")?;
         }
 
         Ok(())
     }
 }
 
+/*
 #[derive(Debug)]
 pub struct FoldExprArena {
     pub buf: Vec<FoldExpr>,
@@ -187,6 +309,7 @@ impl FoldExprArena {
         self.buf.len() - 1
     }
 }
+*/
 
 #[derive(Debug)]
 pub enum FoldExprError {
@@ -342,4 +465,15 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
     }
 
     Ok((operation, operands))
+}
+
+struct CharWriter<'a> {
+    buf: &'a mut Vec<char>,
+}
+
+impl fmt::Write for CharWriter<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.buf.extend(s.chars());
+        Ok(())
+    }
 }

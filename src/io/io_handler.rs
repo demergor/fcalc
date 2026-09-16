@@ -3,14 +3,14 @@ use std::{
     cmp::min,
     error::Error,
     fmt::Display,
-    io::{self, stdin, stdout, BufWriter, Read, Write},
+    io::{self, stdout, BufWriter, Write},
 };
 
 use crate::{
     fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError},
     io::Key,
     operation::{Operation, OperationExecutionError},
-    terminal::{self, Terminal},
+    terminal::Terminal,
 };
 
 pub struct IoHandler {

@@ -1,9 +1,8 @@
-mod key;
 mod input_parser;
 mod io_handler;
-mod io_handler_new;
+mod key;
 
-pub use key::Key; 
+pub use input_parser::InputParser;
 pub use io_handler::IoHandler;
-
-use input_parser::InputParser;
+pub use io_handler::State;
+pub use key::Key;

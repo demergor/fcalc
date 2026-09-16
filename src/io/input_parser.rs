@@ -1,6 +1,5 @@
 use std::{
-    collections::VecDeque,
-    io::{Read, Stdin},
+    collections::VecDeque, io::{Read, Stdin},
 };
 
 use crate::{io::Key, terminal::{self, Terminal}};
@@ -9,8 +8,8 @@ const TIMEOUT_MS: i32 = 30;
 const BACKSPACE: u8 = b'\x08';
 
 // UTF8
-const ONE_BYTE_TEST: u8 = 0b1000_0000;
-const ONE_BYTE_EXPECTED: u8 = 0b0000_0000;
+const _ONE_BYTE_TEST: u8 = 0b1000_0000;
+const _ONE_BYTE_EXPECTED: u8 = 0b0000_0000;
 const TWO_BYTE_TEST: u8 = 0b1100_0000;
 const TWO_BYTE_EXPECTED: u8 = 0b1110_0000;
 const THREE_BYTE_TEST: u8 = 0b1111_0000;
@@ -29,7 +28,16 @@ pub struct InputParser {
 }
 
 impl InputParser {
-    fn poll_key(&mut self) {
+    pub fn new() -> InputParser {
+        InputParser {
+            pending_keys: VecDeque::new(),
+            stdin: std::io::stdin(),
+            state: ParseState::Normal,
+            multi_byte_buf: Vec::new(),
+        }
+    }
+
+    pub fn poll_key(&mut self) {
         let Ok(ready) = Terminal::byte_ready(TIMEOUT_MS) else {
             return;
         };
@@ -58,6 +66,7 @@ impl InputParser {
                     self.multi_byte_buf.push(byte);
                     self.state = ParseState::Utf8(3)
                 },
+                BACKSPACE => self.pending_keys.push_back(Key::Backspace),
                 ch => self.pending_keys.push_back(Key::Char(char::from(ch))),
             },
             ParseState::Escape => match buf[0] {

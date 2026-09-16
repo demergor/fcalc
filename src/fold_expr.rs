@@ -11,14 +11,23 @@ pub struct FoldExpr {
     pub operation: Operation,
     operands: Vec<f64>,
     cur_operand: Option<usize>,
-
-    // Below is what's needed only for the Arena-Impl
-    result: Option<f64>,
-    parent: Option<usize>,
-    children: Vec<usize>,
 }
 
 impl FoldExpr {
+    pub fn reparse(&mut self, slice: &[char]) -> Result<(), FoldExprError> {
+        let (operation, operands) = parse(slice)?;
+        self.operation = operation;
+        self.operands = operands;
+
+        if self.evaluate().is_err() {
+            return Err(FoldExprError::ParseError(
+                    ParseFoldExprError::InvalidCharacter('!', 0)
+            ));
+        }
+
+        Ok(())
+    }
+
     pub fn evaluate(&self) -> Result<f64, OperationExecutionError> {
         self.operation.execute(&self.operands)
     }
@@ -79,6 +88,16 @@ impl FoldExpr {
         Ok(())
     }
 
+    pub fn change_operation(&mut self, new_op: Operation) -> bool {
+        if new_op == self.operation {
+            return false;
+        }
+
+        self.operation = new_op;
+
+        true
+    }
+
     pub fn change_operand(&mut self, new_val: f64) -> bool {
         let Some(cur_operand) = self.cur_operand else {
             panic!("No current operand to change in fold expression!");
@@ -117,17 +136,26 @@ impl FoldExpr {
 
         self.cur_operand
     }
+
+    pub fn new_from_cur_operand(&self) -> Option<FoldExpr> {
+        let Some(cur_op) = self.cur_operand else {
+            return None;
+        };
+
+        Some(FoldExpr {
+            operation: Operation::Addition,
+            operands: vec![self.operands[cur_op]],
+            cur_operand: Some(0),
+        })
+    }
 }
 
 impl Default for FoldExpr {
     fn default() -> Self {
         Self {
             operation: Operation::Addition,
-            operands: Vec::new(),
-            cur_operand: None,
-            result: None,
-            parent: None,
-            children: Vec::new(),
+            operands: vec![0.0],
+            cur_operand: Some(0),
         }
     }
 }

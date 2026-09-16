@@ -5,40 +5,30 @@ mod terminal;
 
 use std::error::Error;
 
-use crate::fold_expr::FoldExpr;
-use crate::terminal::Terminal;
+use crate::{io::{InputParser, IoHandler, Key}, terminal::Terminal};
 
-use crate::editor::Editor;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    todo!()
-    /*
-    loop {
-        println!("Please enter your fold expression below:");
-        let mut input = String::new();
-        stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input!");
-        let fold_expression =
-            FoldExpr::try_from(input.chars().collect::<Vec<char>>().as_slice())?;
-        let result = fold_expression.evaluate()?;
-        println!("{fold_expression:?}");
-        println!("{result}");
-    }
-    */
-
-    /*
-    let Ok(terminal) = Terminal::new() else {
-        eprintln!("Error preparing the terminal!");
-        return;
+    let Ok(term) = Terminal::new() else {
+        panic!("Failed to set up terminal!");
     };
-    let cbuf = Editor::new(&terminal);
 
-    let height = terminal.height;
-    let width = terminal.width;
+    let mut io_handler = IoHandler::new(&term)?;
+    let mut input_parser = InputParser::new();
+    let mut state = io_handler.update(Key::Enter)?;
 
-    drop(terminal);
+    while state == io::State::Continue {
+        input_parser.poll_key();
+        if let Some(key) = input_parser.pending_keys.pop_front() {
+            state = io_handler.update(key)?;
+        }
+    }
 
-    println!("Terminal height: {}\nTerminal width: {}", height, width);
-    */
+    drop(term);
+    match state {
+        io::State::Quit(last_result) => println!("{last_result}"),
+        _ => (),
+    }
+
+    Ok(())
 }

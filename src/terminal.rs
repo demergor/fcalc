@@ -4,8 +4,6 @@ use std::{
 };
 
 pub const ESC: u8 = b'\x1b';
-pub const SAVE_CURSOR_POS: &str = "\x1b7";
-pub const RESTORE_CURSOR_POS: &str = "\x1b8";
 
 const ENTER_ALT_SCREEN: &str = "\x1b[?1049h";
 const LEAVE_ALT_SCREEN: &str = "\x1b[?1049l";
@@ -44,7 +42,7 @@ impl Terminal {
         set_terminal_attributes(&raw)?;
 
         let mut stdout = io::stdout();
-        stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
+        // stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
         stdout.flush()?;
 
         Ok(Self {
@@ -66,7 +64,7 @@ impl Terminal {
             return Err(io::Error::last_os_error());
         }
 
-        Ok(result > 0 && (pollfd.events & libc::POLLIN) != 0)
+        Ok(result > 0 && (pollfd.revents & libc::POLLIN) != 0)
     }
 }
 

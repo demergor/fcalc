@@ -54,6 +54,7 @@ impl InputParser {
         match self.state {
             ParseState::Normal => match buf[0] {
                 terminal::ESC => self.state = ParseState::Escape,
+                b'\n' => self.pending_keys.push_back(Key::Enter),
                 byte if byte & TWO_BYTE_TEST == TWO_BYTE_EXPECTED => {
                     self.multi_byte_buf.push(byte);
                     self.state = ParseState::Utf8(1)
@@ -66,7 +67,7 @@ impl InputParser {
                     self.multi_byte_buf.push(byte);
                     self.state = ParseState::Utf8(3)
                 },
-                BACKSPACE => self.pending_keys.push_back(Key::Backspace),
+                BACKSPACE | b'\x7f' => self.pending_keys.push_back(Key::Backspace),
                 ch => self.pending_keys.push_back(Key::Char(char::from(ch))),
             },
             ParseState::Escape => match buf[0] {

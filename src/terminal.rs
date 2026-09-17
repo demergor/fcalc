@@ -42,7 +42,8 @@ impl Terminal {
         set_terminal_attributes(&raw)?;
 
         let mut stdout = io::stdout();
-        // stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
+        stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
+        stdout.write_all("\x1b[H".as_bytes())?;
         stdout.flush()?;
 
         Ok(Self {

@@ -6,7 +6,7 @@ use std::{
 
 use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FoldExpr {
     pub operation: Operation,
     operands: Vec<f64>,
@@ -14,14 +14,26 @@ pub struct FoldExpr {
 }
 
 impl FoldExpr {
-    pub fn reparse(&mut self, slice: &[char]) -> Result<(), FoldExprError> {
-        let (operation, operands) = parse(slice)?;
+    pub fn reparse(
+        &mut self,
+        slice: &[char],
+        cursor_pos: usize,
+    ) -> Result<(), FoldExprError> {
+        let (operation, operands, cur_operand) = parse(slice, cursor_pos)?;
         self.operation = operation;
         self.operands = operands;
 
+        match cur_operand {
+            Some(idx) if idx <= self.operands.len() => self.cur_operand = cur_operand,
+            None if !self.operands.is_empty() => {
+                self.cur_operand = Some(self.operands.len() - 1)
+            }
+            _ => self.cur_operand = None,
+        };
+
         if self.evaluate().is_err() {
             return Err(FoldExprError::ParseError(
-                    ParseFoldExprError::InvalidCharacter('!', 0)
+                ParseFoldExprError::InvalidCharacter(self.operation.as_char(), 0),
             ));
         }
 
@@ -36,11 +48,7 @@ impl FoldExpr {
         self.operands.reverse();
     }
 
-    pub fn write_chars(
-        &self,
-        buf: &mut Vec<char>,
-        highlight_op: bool,
-    ) -> std::fmt::Result {
+    pub fn write_chars(&self, buf: &mut Vec<char>) -> std::fmt::Result {
         const RED: &str = "\x1b[93m";
         const RESET: &str = "\x1b[0m";
 
@@ -48,8 +56,8 @@ impl FoldExpr {
         let mut cw = CharWriter { buf };
         write!(cw, "{}", self.operation)?;
 
-        let op_idx = match self.cur_operand {
-            Some(idx) if idx < self.operands.len() => idx,
+        match self.cur_operand {
+            Some(idx) if idx < self.operands.len() => (),
             None if self.operands.is_empty() => return Ok(()),
             Some(idx) => panic!(
                 "Invalid index stored as current operand to `FoldExpr`: \
@@ -64,15 +72,11 @@ impl FoldExpr {
         };
 
         for i in 0..self.operands.len() {
-            if !self.operation.is_unary() {
+            if i != 0 || !self.operation.is_unary() {
                 write!(cw, " ")?;
             }
 
-            if op_idx == i && highlight_op {
-                write!(cw, "{RED}{}{RESET}", self.operands[i])?;
-            } else {
-                write!(cw, "{}", self.operands[i])?;
-            }
+            write!(cw, "{}", self.operands[i])?;
         }
 
         Ok(())
@@ -178,167 +182,6 @@ impl Display for FoldExpr {
     }
 }
 
-/*
-#[derive(Debug)]
-pub struct FoldExprArena {
-    pub buf: Vec<FoldExpr>,
-}
-
-impl FoldExprArena {
-    pub fn new() -> FoldExprArena {
-        FoldExprArena { buf: Vec::new() }
-    }
-
-    pub fn evaluate(&mut self, id: usize) -> Result<f64, OperationExecutionError> {
-        if let Some(cached_result) = self.buf[id].result {
-            return Ok(cached_result);
-        }
-
-        let mut operands = Vec::with_capacity(self.buf[id].children.len());
-        for child_id in self.buf[id].children.clone() {
-            operands.push(self.evaluate(child_id)?);
-        }
-
-        let result = self.buf[id].operation.execute(&operands)?;
-        self.buf[id].result = Some(result);
-
-        Ok(result)
-    }
-
-    pub fn child_id(
-        &self,
-        id: usize,
-        child_idx: usize,
-    ) -> Result<usize, FoldExprError> {
-        if id >= self.buf.len() {
-            return Err(FoldExprError::IdAccessError(id));
-        }
-
-        if child_idx >= self.buf[id].children.len() {
-            return Err(FoldExprError::OperandAccessError(id, child_idx));
-        }
-
-        Ok(self.buf[id].children[child_idx])
-    }
-
-    pub fn add(
-        &mut self,
-        slice: &[char],
-        parent_id: Option<usize>,
-    ) -> Result<usize, FoldExprError> {
-        match parent_id {
-            Some(id) if id >= self.buf.len() => {
-                return Err(FoldExprError::IdAccessError(id))
-            }
-            _ => (),
-        }
-
-        let (operation, operands) = parse(slice)?;
-        let fold_expr_id = self.buf.len();
-        self.buf.push(FoldExpr {
-            operation,
-            result: None,
-            parent: parent_id,
-            children: Vec::new(),
-        });
-
-        for operand in operands {
-            self.buf.push(FoldExpr {
-                operation: Operation::Addition,
-                result: Some(operand),
-                parent: Some(fold_expr_id),
-                children: Vec::new(),
-            });
-        }
-
-        for i in fold_expr_id + 1..self.buf.len() {
-            self.buf[fold_expr_id].children.push(i);
-        }
-
-        if let Some(parent_id) = parent_id {
-            self.buf[parent_id].children.push(fold_expr_id);
-        };
-
-        Ok(fold_expr_id)
-    }
-
-    /// Removes the `FoldExpression` with given @param id and returns the previous ID of
-    /// the `FoldExpression` that is now associated with @param id
-    pub fn remove(&mut self, id: usize) -> Result<usize, FoldExprError> {
-        if id >= self.buf.len() {
-            return Err(FoldExprError::IdAccessError(id));
-        }
-
-        self.buf.swap_remove(id);
-        let removed_id = self.buf.len();
-        let Some(parent_id) = self.buf[id].parent else {
-            return Ok(removed_id);
-        };
-
-        // The former last element now has a new ID: the parent needs to be updated
-        for child_id in &mut self.buf[parent_id].children {
-            if *child_id == removed_id {
-                *child_id = id;
-                return Ok(removed_id);
-            }
-        }
-
-        Err(FoldExprError::ParentChildViolation(id, parent_id))
-    }
-
-    pub fn update(&mut self, slice: &[char], id: usize) -> Result<(), FoldExprError> {
-        if id >= self.buf.len() {
-            return Err(FoldExprError::IdAccessError(id));
-        }
-
-        let (operation, operands) = parse(slice)?;
-        self.buf[id].operation = operation;
-
-        for child_id in self.buf[id].children.clone() {
-            self.remove(child_id)?;
-        }
-
-        self.buf[id].children.clear();
-        for i in self.buf.len()..self.buf.len() + operands.len() {
-            self.buf.push(FoldExpr {
-                operation: Operation::Addition,
-                result: None,
-                parent: Some(id),
-                children: Vec::new(),
-            });
-            self.buf[id].children.push(i);
-        }
-
-        Ok(())
-    }
-
-    pub fn root_id(&self) -> Option<usize> {
-        if self.buf.is_empty() {
-            return None;
-        }
-
-        let mut cur_id = 0;
-        while let Some(parent_id) = self.buf[cur_id].parent {
-            cur_id = parent_id;
-        }
-
-        Some(cur_id)
-    }
-
-    pub fn init(&mut self, op: Operation) -> usize {
-        self.buf.clear();
-        self.buf.push(FoldExpr {
-            operation: op,
-            result: None,
-            parent: None,
-            children: Vec::new(),
-        });
-
-        self.buf.len() - 1
-    }
-}
-*/
-
 #[derive(Debug)]
 pub enum FoldExprError {
     IdAccessError(usize),
@@ -417,7 +260,10 @@ impl Display for ParseFoldExprError {
 
 impl Error for ParseFoldExprError {}
 
-fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
+fn parse(
+    slice: &[char],
+    cursor_pos: usize,
+) -> Result<(Operation, Vec<f64>, Option<usize>), FoldExprError> {
     let start = slice.iter().position(|ch| !ch.is_whitespace());
     let end = slice.iter().rposition(|ch| !ch.is_whitespace());
 
@@ -440,6 +286,7 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
     let mut first_digit = true;
     let mut reverse = false;
     let mut pos = 0;
+    let mut cur_operand = None;
 
     while let Some(ch) = it.next() {
         pos += 1;
@@ -478,6 +325,10 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
             }
             ch => return Err(ParseFoldExprError::InvalidCharacter(*ch, pos).into()),
         }
+
+        if pos == cursor_pos && ch.is_ascii_digit() {
+            cur_operand = Some(operands.len());
+        }
     }
 
     if !first_digit {
@@ -492,7 +343,7 @@ fn parse(slice: &[char]) -> Result<(Operation, Vec<f64>), FoldExprError> {
         operands.reverse();
     }
 
-    Ok((operation, operands))
+    Ok((operation, operands, cur_operand))
 }
 
 struct CharWriter<'a> {

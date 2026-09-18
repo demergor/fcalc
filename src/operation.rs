@@ -22,6 +22,18 @@ impl Operation {
             _ => false,
         }
     }
+
+    pub fn as_char(&self) -> char {
+        match self {
+            Self::Addition => '+',
+            Self::Division => '÷',
+            Self::Factorial => '!',
+            Self::Multiplication => '×',
+            Self::Power => '^',
+            Self::Root => '√',
+            Self::Subtraction => '-',
+        }
+    }
 }
 
 impl TryFrom<char> for Operation {
@@ -43,17 +55,7 @@ impl TryFrom<char> for Operation {
 
 impl Display for Operation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let c = match self {
-            Self::Addition => '+',
-            Self::Division => '/',
-            Self::Factorial => '!',
-            Self::Multiplication => '*',
-            Self::Power => '^',
-            Self::Root => '√',
-            Self::Subtraction => '-',
-        };
-
-        write!(f, "{c}")
+        write!(f, "{}", self.as_char())
     }
 }
 

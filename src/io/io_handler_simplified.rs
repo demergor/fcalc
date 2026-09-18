@@ -43,10 +43,13 @@ impl IoHandler {
     }
 
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        const ERR_COLOR: &str = "\x1b[41m";
+        const RESET: &str = "\x1b[0m";
+
         match key {
             Key::Char('q') => {
                 return Ok(State::Quit(
-                        self.fold_exprs
+                    self.fold_exprs
                         .first()
                         .ok_or(InternalStateError::NoFoldExpr)?
                         .evaluate()
@@ -54,30 +57,39 @@ impl IoHandler {
                 ));
             }
             Key::Char(ch) => {
-                let mut cur_col = self.cur_col;
+                let cur_col = self.cur_col;
                 let (cur_expr, cur_line) = self.cur_pair()?;
 
                 cur_line.insert(cur_col, ch);
-                cur_col += 1;
                 print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
-                stdout().flush()?;
-
 
                 match cur_expr.reparse(cur_line) {
                     Err(FoldExprError::ParseError(
-                            ParseFoldExprError::InvalidCharacter(_, _)
+                        ParseFoldExprError::InvalidCharacter(ch, pos),
                     )) => {
-                        print!(
-                            "\x1b[{}G\x1b[31m{}\x1b[0m",
-                            cur_col,
-                            cur_line[cur_col - 1]
-                        );
-                        stdout().flush()?;
+                        print!("\x1b[{}G{ERR_COLOR}{ch}{RESET}", pos + 1);
                     }
                     _ => (),
                 }
 
-                self.cur_col = cur_col;
+                self.cur_col += 1;
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
+            }
+            Key::ArrowRight => {
+                self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
+            }
+            Key::ArrowLeft => {
+                self.cur_col = if self.cur_col <= 1 {
+                    1
+                } else {
+                    self.cur_col - 1
+                };
+
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
             }
             _ => self.render()?,
         }

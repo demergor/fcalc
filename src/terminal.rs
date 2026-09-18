@@ -1,26 +1,11 @@
 use std::{
-    io::{self, Write},
-    mem::MaybeUninit,
+    error, fmt::{self, Display}, io::{self, Write}, mem::MaybeUninit,
 };
 
 pub const ESC: u8 = b'\x1b';
 
 const ENTER_ALT_SCREEN: &str = "\x1b[?1049h";
 const LEAVE_ALT_SCREEN: &str = "\x1b[?1049l";
-
-#[derive(Debug)]
-pub enum TerminalPreparationError {
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    UnsupportedOperatingSystem,
-    BadTerminalSize,
-    Io(io::Error),
-}
-
-impl From<io::Error> for TerminalPreparationError {
-    fn from(error: io::Error) -> TerminalPreparationError {
-        Self::Io(error)
-    }
-}
 
 #[derive(Debug)]
 pub struct Terminal {
@@ -77,6 +62,35 @@ impl Drop for Terminal {
         let _ = stdout.flush();
     }
 }
+
+#[derive(Debug)]
+pub enum TerminalPreparationError {
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    UnsupportedOperatingSystem,
+    BadTerminalSize,
+    Io(io::Error),
+}
+
+impl From<io::Error> for TerminalPreparationError {
+    fn from(error: io::Error) -> TerminalPreparationError {
+        Self::Io(error)
+    }
+}
+
+impl Display for TerminalPreparationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            Self::UnsupportedOperatingSystem => {
+                write!(f, "This program is not supported on your operating system!")
+            }
+            Self::BadTerminalSize => write!(f, "Couldn't fetch terminal size!"),
+            Self::Io(err) => write!(f, "Terminal: {err}"),
+        }
+    }
+}
+
+impl error::Error for TerminalPreparationError {}
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn terminal_attributes() -> Result<libc::termios, TerminalPreparationError> {

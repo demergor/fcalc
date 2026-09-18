@@ -17,10 +17,9 @@ pub struct IoHandler {
     fold_exprs: Vec<FoldExpr>,
     lines: Vec<Vec<char>>,
     cur_col: usize,
-    cur_row: u16,
-    syntax_error: bool,
 
     term_width: u16,
+    term_height: u16,
 }
 
 impl IoHandler {
@@ -28,42 +27,52 @@ impl IoHandler {
         let root_expr = FoldExpr::default();
         let mut buf = Vec::new();
 
-        if root_expr.write_chars(&mut buf, false).is_err() {
+        if root_expr.write_chars(&mut buf).is_err() {
             return Err(IoError::HandlerConstructionError);
         };
-
-        let buf_back = buf.len() - 1;
 
         Ok(IoHandler {
             fold_exprs: vec![root_expr],
             lines: vec![buf],
-            cur_col: buf_back,
-            cur_row: 0,
-            syntax_error: false,
+            cur_col: 3,
             term_width: bounds.width,
+            term_height: bounds.height,
         })
     }
 
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
             Key::Enter => {
-                if self.syntax_error {
+                let syntax_error = {
+                    let cur_col = self.cur_col;
+                    let (cur_expr, cur_line) = self.cur_pair()?;
+                    cur_expr.reparse(cur_line, cur_col).is_err()
+                };
+
+                if syntax_error {
                     return Ok(State::Continue);
                 }
 
                 if self.fold_exprs.len() < 2 {
-                    self.fold_exprs
-                        .last_mut()
-                        .ok_or(InternalStateError::FoldExprError)?
-                        .collapse()?;
-                } else {
-                    let collapsed =
-                        self.fold_exprs[self.fold_exprs.len() - 1].evaluate()?;
-                    let idx = self.fold_exprs.len() - 2;
-                    self.fold_exprs[idx].change_operand(collapsed);
-                    self.fold_exprs.pop();
-                    self.lines.pop();
+                    let (cur_expr, cur_line) = self.cur_pair()?;
+                    cur_expr.collapse()?;
+                    cur_expr.write_chars(cur_line)?;
+                    let cur_line = self.cur_pair()?.1;
+                    print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
+                    self.cur_col = cur_line.len();
+                    print!("\x1b[{}G", self.cur_col + 1);
+                    stdout().flush()?;
+
+                    return Ok(State::Continue);
                 }
+
+                let child_expr = self.fold_exprs.pop();
+                self.lines.pop();
+
+                let (parent_expr, parent_line) = self.cur_pair()?;
+                parent_expr.change_operand(child_expr.unwrap().evaluate()?);
+                parent_expr.write_chars(parent_line)?;
+                self.cur_col = parent_line.len();
 
                 self.render()?;
             }
@@ -76,191 +85,120 @@ impl IoHandler {
                         .map_err(|_| InternalStateError::FoldExprError)?,
                 ));
             }
-            Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
-                if self.cur_pair()?.0.change_operation(op) {
-                    self.ripple_update()?;
-                    self.render()?;
+            Key::Char('r') => {
+                let cur_col = self.cur_col;
+                let (cur_expr, cur_line) = self.cur_pair()?;
+
+                if cur_expr.reparse(cur_line, cur_col).is_err() {
+                    return Ok(State::Continue);
                 }
+
+                cur_expr.reverse();
+                cur_expr.write_chars(cur_line)?;
+
+                self.render()?;
             }
             Key::Char('e') => {
+                let cur_col = self.cur_col;
                 let (cur_expr, cur_line) = self.cur_pair()?;
-                let Some(child_expr) = cur_expr.new_from_cur_operand() else {
+
+                if cur_expr.reparse(cur_line, cur_col).is_err() {
+                    return Ok(State::Continue);
+                }
+
+                let Some(new_fold_expr) = cur_expr.new_from_cur_operand() else {
                     return Ok(State::Continue);
                 };
 
-                cur_expr.write_chars(cur_line, true)?;
-                let mut buf = Vec::new();
-                child_expr.write_chars(&mut buf, false)?;
+                self.fold_exprs.push(new_fold_expr);
+                self.lines.push(Vec::new());
 
-                self.fold_exprs.push(child_expr);
-                self.lines.push(buf);
-            }
-            Key::Char('w') => {
-                let (cur_expr, cur_line) = self.cur_pair()?;
-                let Some(next_op) = cur_expr.next_operand() else {
-                    return Ok(State::Continue);
-                };
+                let (new_cur_expr, new_cur_line) = self.cur_pair()?;
+                new_cur_expr.write_chars(new_cur_line)?;
+                self.cur_col = new_cur_line.len();
 
-                let mut cur_col = 1;
-                let mut op_idx = 0;
-                let mut seen_digit = false;
-
-                while cur_col < cur_line.len() && op_idx != next_op + 1 {
-                    match cur_line[cur_col] {
-                        ch if ch.is_whitespace() => {
-                            seen_digit = false;
-                        }
-                        ch if !seen_digit && ch.is_digit(10) => {
-                            seen_digit = true;
-                            op_idx += 1;
-                        }
-                        _ => {}
-                    }
-
-                    cur_col += 1;
-                }
-
-                while cur_col < cur_line.len() && !cur_line[cur_col].is_whitespace() {
-                    cur_col += 1;
-                }
-
-                self.cur_col = cur_col;
-                print!("\r\x1b[{}C", self.cur_col + 1);
-                stdout().flush()?;
-            }
-            Key::Char('b') => {
-                let (cur_expr, cur_line) = self.cur_pair()?;
-                let Some(prev_op) = cur_expr.previous_operand() else {
-                    return Ok(State::Continue);
-                };
-
-                let mut cur_col = 1;
-                let mut op_idx = 0;
-                let mut seen_digit = false;
-
-                while cur_col < cur_line.len() && op_idx != prev_op + 1 {
-                    match cur_line[cur_col] {
-                        ch if ch.is_whitespace() => {
-                            seen_digit = false;
-                        }
-                        ch if !seen_digit && ch.is_digit(10) => {
-                            seen_digit = true;
-                            op_idx += 1;
-                        }
-                        _ => {}
-                    }
-
-                    cur_col += 1;
-                }
-
-                while cur_col < cur_line.len() && !cur_line[cur_col].is_whitespace() {
-                    cur_col += 1;
-                }
-
-                self.cur_col = cur_col;
-                print!("\r\x1b[{}C", self.cur_col + 1);
-                stdout().flush()?;
-            }
-            Key::Char('r') => {
-                if self.syntax_error {
-                    return Ok(State::Continue);
-                }
-
-                self.fold_exprs
-                    .last_mut()
-                    .ok_or(InternalStateError::NoFoldExpr)?
-                    .reverse();
                 self.render()?;
+            }
+            Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
+                let cur_line = self.cur_pair()?.1;
+                assert!(!cur_line.is_empty());
+                cur_line[0] = op.as_char();
+                print!("\r{}", op.as_char());
+            }
+            Key::Char(ch) if ch == 'w' || ch == 'b' => {
+                let get_operand_idx = if ch == 'w' {
+                    FoldExpr::next_operand
+                } else {
+                    FoldExpr::previous_operand
+                };
+
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                let Some(op_idx) = get_operand_idx(cur_expr) else {
+                    return Ok(State::Continue);
+                };
+
+                let Some((_, op_end)) = nth_operand_pos(cur_line, op_idx) else {
+                    return Ok(State::Continue);
+                };
+
+                self.cur_col = op_end - 1;
+            }
+            Key::Char(ch) => {
+                let cur_col = self.cur_col;
+                let cur_line = self.cur_pair()?.1;
+                cur_line.insert(cur_col, ch);
+
+                print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
+                self.reeval()?;
+                self.cur_col += 1;
+            }
+            Key::Backspace => {
+                if self.cur_col < 2 {
+                    return Ok(State::Continue);
+                }
+
+                let mut cur_col = self.cur_col - 1;
+                let cur_line = self.cur_pair()?.1;
+                cur_col = min(cur_col, cur_line.len() - 1);
+
+                cur_line.remove(cur_col);
+                print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
+
+                self.reeval()?;
+                self.cur_col = min(cur_col, self.cur_pair()?.1.len());
             }
             Key::ArrowRight => {
                 self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len())
             }
             Key::ArrowLeft => {
-                self.cur_col = if self.cur_col == 0 {
-                    0
+                self.cur_col = if self.cur_col <= 1 {
+                    1
                 } else {
                     self.cur_col - 1
                 }
             }
-            Key::Char(ch) => {
-                self.syntax_error = true;
-                let mut cur_col = self.cur_col;
-                let (cur_expr, cur_line) = self.cur_pair()?;
-
-                cur_line.insert(cur_col, ch);
-                cur_col += 1;
-                print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
-
-                match cur_expr.reparse(cur_line) {
-                    Err(FoldExprError::ParseError(
-                        ParseFoldExprError::InvalidCharacter(_, pos),
-                    )) => print!(
-                        "\r\x1b[{pos}C\x1b[41m\x1b[C\x1b[0m\r\x1b[{}C",
-                        self.cur_col
-                    ),
-                    Err(FoldExprError::ParseError(
-                        ParseFoldExprError::OperationError(_),
-                    )) => print!("\r\x1b[41m\x1b[C\x1b[0m\r\x1b[{}C", self.cur_col),
-                    Err(err) => return Err(err.into()),
-                    Ok(_) => self.syntax_error = false,
-                };
-
-                stdout().flush()?;
-                self.cur_col = cur_col;
-
-                if !self.syntax_error {
-                    self.ripple_update()?;
-                    self.render()?;
-                }
-            }
-            Key::Backspace => {
-                let cur_col = self.cur_col;
-                let (cur_expr, cur_line) = self.cur_pair()?;
-
-                if cur_col == 0 {
-                    ()
-                } else {
-                    cur_line.remove(cur_col - 1);
-                }
-
-                if cur_expr.reparse(cur_line).is_err() {
-                    self.syntax_error = false;
-                } else {
-                    self.syntax_error = true;
-                }
-            }
-            _ => return Ok(State::Continue),
+            _ => self.render()?,
         }
+
+        print!("\x1b[{}G", self.cur_col + 1);
+        stdout().flush()?;
 
         Ok(State::Continue)
     }
 
     fn render(&mut self) -> Result<(), RenderError> {
         self.ripple_update()?;
-        let mut up_count = min(
-            self.cur_row,
-            self.lines.iter().fold(0, |acc, line| {
-                acc + (line.len() as u16 - 1) / self.term_width + 1
-            }),
-        );
-
-        if up_count != 0 {
-            up_count -= 1;
-        }
-
-        let first_to_print: usize = if up_count == self.cur_row {
-            0
-        } else {
+        let to_skip: usize = {
             let mut idx = self.lines.len();
-            let mut up_count_cp = up_count;
+            let mut height = self.term_height;
 
-            while idx > 0 && up_count_cp > 0 {
+            while idx > 0 && height > 0 {
                 idx -= 1;
                 if self.lines[idx].is_empty() {
                     panic!("Empty string representation of a fold expression!");
                 }
 
-                up_count_cp -= (self.lines[idx].len() as u16 - 1) / self.term_width + 1;
+                height -= (self.lines[idx].len() as u16 - 1) / self.term_width + 1;
             }
 
             idx
@@ -269,14 +207,42 @@ impl IoHandler {
         const HIDE_CURSOR: &str = "\x1b[?25l";
         const SHOW_CURSOR: &str = "\x1b[?25h";
         const ERASE_FROM_CURSOR: &str = "\x1b[0J";
+        const HIGHLIGHT_COLOR: &str = "\x1b[92m";
+        const RESET: &str = "\x1b[0m";
 
         let mut out = BufWriter::new(std::io::stdout().lock());
-        write!(out, "{HIDE_CURSOR}")?;
-        write!(out, "\x1b[{up_count}A\r{ERASE_FROM_CURSOR}")?;
+        write!(out, "\x1b[H{HIDE_CURSOR}{ERASE_FROM_CURSOR}")?;
 
+        let expr_it = self.fold_exprs.iter().skip(to_skip);
+        let line_it = self.lines.iter().skip(to_skip);
+        let mut pair_it = expr_it.zip(line_it).peekable();
         let mut first = true;
-        for i in first_to_print..self.lines.len() {
-            let fold_expr_str: String = self.lines[i].iter().collect();
+
+        while let Some((expr, line)) = pair_it.next() {
+            let Some(operand_idx) = expr.cur_operand() else {
+                panic!("Fold expression without operand detected while rendering!");
+            };
+
+            let mut line_cp = line.clone();
+            let Some((start, end)) = nth_operand_pos(&line_cp, operand_idx) else {
+                panic!(concat!(
+                    "Couldn't find nth operand in ",
+                    "fold expression's string representation!"
+                ));
+            };
+
+            if pair_it.peek().is_some() {
+                for ch in HIGHLIGHT_COLOR.chars().rev() {
+                    line_cp.insert(start, ch)
+                }
+
+                let end = end + HIGHLIGHT_COLOR.len();
+                for ch in RESET.chars().rev() {
+                    line_cp.insert(end, ch)
+                }
+            }
+
+            let fold_expr_str: String = line_cp.iter().collect();
             write!(out, "{}{}", if first { "" } else { "\r\n" }, fold_expr_str)?;
             first = false;
         }
@@ -288,6 +254,7 @@ impl IoHandler {
         )?;
         out.flush()?;
 
+        self.cur_pair().unwrap().0.cur_operand_to_last();
         Ok(())
     }
 
@@ -299,7 +266,7 @@ impl IoHandler {
         let cur_line = line_it
             .next()
             .expect("Current fold expression is missing its string representation!");
-        cur_expr.write_chars(cur_line, false)?;
+        cur_expr.write_chars(cur_line)?;
 
         let mut last_result = cur_expr.evaluate().expect(concat!(
             "Can't evaluate `FoldExpr`s result ",
@@ -312,11 +279,11 @@ impl IoHandler {
 
             match (next_expr, next_line) {
                 (Some(expr), Some(line)) => {
-                    if !cur_expr.change_operand(last_result) {
+                    if !expr.change_operand(last_result) {
                         return Ok(());
                     }
 
-                    expr.write_chars(line, true)?;
+                    expr.write_chars(line)?;
                     last_result = expr
                         .evaluate()
                         .map_err(|_| RenderError::FoldExprResultError)?;
@@ -337,6 +304,24 @@ impl IoHandler {
         let cur_line = self.lines.last_mut().ok_or(InternalStateError::OutOfSync)?;
 
         Ok((cur_expr, cur_line))
+    }
+
+    fn reeval(&mut self) -> Result<(), Box<dyn Error>> {
+        const ERR_COLOR: &str = "\x1b[41m";
+        const RESET: &str = "\x1b[0m";
+
+        let cur_col = self.cur_col;
+        let (cur_expr, cur_line) = self.cur_pair()?;
+
+        match cur_expr.reparse(cur_line, cur_col) {
+            Err(FoldExprError::ParseError(ParseFoldExprError::InvalidCharacter(
+                ch,
+                pos,
+            ))) => print!("\x1b[{}G{ERR_COLOR}{ch}{RESET}", pos + 1),
+            _ => (),
+        }
+
+        Ok(())
     }
 }
 
@@ -379,7 +364,6 @@ impl Error for InternalStateError {}
 pub enum IoError {
     HandlerConstructionError,
     Io(io::Error),
-    MissingRowInformation,
 }
 
 impl From<io::Error> for IoError {
@@ -395,7 +379,6 @@ impl Display for IoError {
                 write!(f, "Error construtcting `IoHandler`!")
             }
             Self::Io(err) => write!(f, "`IoHandler`: {err}"),
-            Self::MissingRowInformation => write!(f, "Couldn't fetch row information!"),
         }
     }
 }
@@ -446,4 +429,41 @@ impl From<std::io::Error> for RenderError {
     fn from(err: io::Error) -> Self {
         Self::Io(err)
     }
+}
+
+fn nth_operand_pos(slice: &[char], n: usize) -> Option<(usize, usize)> {
+    let mut cur_op_idx = 0;
+    let mut in_operand = false;
+    let mut negative = false;
+    let mut start = None;
+
+    for (slice_idx, ch) in slice.iter().enumerate() {
+        match ch {
+            ch if ch.is_whitespace() => in_operand = false,
+            ch if *ch == Operation::Subtraction.as_char() => negative = true,
+            ch if ch.is_ascii_digit() && in_operand == false => {
+                in_operand = true;
+                negative = false;
+                cur_op_idx += 1;
+            }
+            _ => (),
+        }
+
+        if start.is_none()
+            && ((negative && cur_op_idx == n) || (in_operand && cur_op_idx - 1 == n))
+        {
+            start = Some(slice_idx);
+        }
+
+        if in_operand && cur_op_idx - 1 == n {
+            let mut slice_idx = slice_idx + 1;
+            while slice_idx < slice.len() && !slice[slice_idx].is_whitespace() {
+                slice_idx += 1;
+            }
+
+            return Some((start.unwrap(), slice_idx));
+        }
+    }
+
+    None
 }

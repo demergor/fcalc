@@ -9,10 +9,7 @@ use crate::{io::{InputParser, IoHandler, Key}, terminal::Terminal};
 
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let Ok(term) = Terminal::new() else {
-        panic!("Failed to set up terminal!");
-    };
-
+    let term = Terminal::new()?;
     let mut io_handler = IoHandler::new(&term)?;
     let mut input_parser = InputParser::new();
     let mut state = io_handler.update(Key::Enter)?;

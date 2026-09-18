@@ -49,9 +49,6 @@ impl FoldExpr {
     }
 
     pub fn write_chars(&self, buf: &mut Vec<char>) -> std::fmt::Result {
-        const RED: &str = "\x1b[93m";
-        const RESET: &str = "\x1b[0m";
-
         buf.clear();
         let mut cw = CharWriter { buf };
         write!(cw, "{}", self.operation)?;
@@ -92,16 +89,6 @@ impl FoldExpr {
         Ok(())
     }
 
-    pub fn change_operation(&mut self, new_op: Operation) -> bool {
-        if new_op == self.operation {
-            return false;
-        }
-
-        self.operation = new_op;
-
-        true
-    }
-
     pub fn change_operand(&mut self, new_val: f64) -> bool {
         let Some(cur_operand) = self.cur_operand else {
             panic!("No current operand to change in fold expression!");
@@ -113,6 +100,10 @@ impl FoldExpr {
         }
 
         dirty
+    }
+
+    pub fn cur_operand(&self) -> Option<usize> {
+        self.cur_operand
     }
 
     pub fn next_operand(&mut self) -> Option<usize> {
@@ -139,6 +130,14 @@ impl FoldExpr {
         });
 
         self.cur_operand
+    }
+
+    pub fn cur_operand_to_last(&mut self) {
+        if self.cur_operand.is_none() {
+            return;
+        }
+
+        self.cur_operand = Some(self.operands.len() - 1);
     }
 
     pub fn new_from_cur_operand(&self) -> Option<FoldExpr> {
@@ -184,9 +183,6 @@ impl Display for FoldExpr {
 
 #[derive(Debug)]
 pub enum FoldExprError {
-    IdAccessError(usize),
-    OperandAccessError(usize, usize),
-    ParentChildViolation(usize, usize),
     ParseError(ParseFoldExprError),
 }
 
@@ -205,23 +201,6 @@ impl From<ParseOperationError> for FoldExprError {
 impl Display for FoldExprError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::IdAccessError(id) => {
-                write!(f, "Error accessing fold expression {id}")
-            }
-            Self::OperandAccessError(id, child_idx) => {
-                write!(
-                    f,
-                    "Fold expression {} doesn't have an operand with index {}!",
-                    id, child_idx
-                )
-            }
-            Self::ParentChildViolation(parent_id, child_id) => {
-                write!(
-                    f,
-                    "Detected inconsistency in parent-child relationship between parent\
-                     fold expression {parent_id} and child fold expression {child_id}"
-                )
-            }
             Self::ParseError(err) => write!(f, "Error parsing `FoldExpr`: {err}"),
         }
     }

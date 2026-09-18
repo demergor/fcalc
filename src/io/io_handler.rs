@@ -85,6 +85,27 @@ impl IoHandler {
                         .map_err(|_| InternalStateError::FoldExprError)?,
                 ));
             }
+            Key::Char('c') => {
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                *cur_expr = FoldExpr::default();
+                cur_expr.write_chars(cur_line)?;
+
+                self.cur_col = cur_line.len();
+                self.render()?;
+            }
+            Key::Char('C') => {
+                self.fold_exprs.clear();
+                self.lines.clear();
+
+                self.fold_exprs = vec![FoldExpr::default()];
+                self.lines = vec![Vec::new()];
+
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                cur_expr.write_chars(cur_line)?;
+
+                self.cur_col = cur_line.len();
+                self.render()?;
+            }
             Key::Char('r') => {
                 let cur_col = self.cur_col;
                 let (cur_expr, cur_line) = self.cur_pair()?;
@@ -187,6 +208,7 @@ impl IoHandler {
     }
 
     fn render(&mut self) -> Result<(), RenderError> {
+        self.flatten();
         self.ripple_update()?;
         let to_skip: usize = {
             let mut idx = self.lines.len();
@@ -256,6 +278,21 @@ impl IoHandler {
 
         self.cur_pair().unwrap().0.cur_operand_to_last();
         Ok(())
+    }
+
+    fn flatten(&mut self) {
+        // One level of dupe-nesting allowed; might come in handy in certain situations
+        while self.fold_exprs.len() >= 3 {
+            let len = self.fold_exprs.len();
+            if self.fold_exprs[len - 1] != self.fold_exprs[len - 2]
+                || self.fold_exprs[len - 1] != self.fold_exprs[len - 3]
+            {
+                return;
+            }
+
+            self.fold_exprs.pop();
+            self.lines.pop();
+        }
     }
 
     fn ripple_update(&mut self) -> Result<(), RenderError> {

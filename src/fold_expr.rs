@@ -6,7 +6,7 @@ use std::{
 
 use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FoldExpr {
     pub operation: Operation,
     operands: Vec<f64>,

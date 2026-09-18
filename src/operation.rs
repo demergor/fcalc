@@ -99,11 +99,11 @@ fn factorial(x: f64) -> Result<f64, OperationExecutionError> {
 
 impl Operation {
     pub fn execute(self, ops: &[f64]) -> Result<f64, OperationExecutionError> {
-        let mut it = ops.iter().copied();
-        if self == Operation::Addition && ops.iter().next().is_none() {
+        if ops.is_empty() {
             return Ok(0.0);
         }
 
+        let mut it = ops.iter().copied();
         let Some(first) = it.next() else {
             return Err(OperationExecutionError::WrongOperandCount);
         };

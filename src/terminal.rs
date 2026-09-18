@@ -2,6 +2,8 @@ use std::{
     error, fmt::{self, Display}, io::{self, Write}, mem::MaybeUninit,
 };
 
+use crate::opts;
+
 pub const ESC: u8 = b'\x1b';
 
 const ENTER_ALT_SCREEN: &str = "\x1b[?1049h";
@@ -27,7 +29,10 @@ impl Terminal {
         set_terminal_attributes(&raw)?;
 
         let mut stdout = io::stdout();
-        stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
+        if !opts::DEBUG {
+            stdout.write_all(ENTER_ALT_SCREEN.as_bytes())?;
+        }
+
         stdout.write_all("\x1b[H".as_bytes())?;
         stdout.flush()?;
 
@@ -58,7 +63,10 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         let _ = set_terminal_attributes(&self.og_termios);
         let mut stdout = io::stdout();
-        let _ = stdout.write_all(LEAVE_ALT_SCREEN.as_bytes());
+        if !opts::DEBUG {
+            let _ = stdout.write_all(LEAVE_ALT_SCREEN.as_bytes());
+        }
+
         let _ = stdout.flush();
     }
 }

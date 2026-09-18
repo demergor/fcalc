@@ -1,20 +1,30 @@
 mod fold_expr;
 mod io;
 mod operation;
+mod opts;
 mod terminal;
 
-use std::error::Error;
+use std::{error::Error, sync::atomic::{AtomicBool, Ordering}};
 
 use crate::{io::{InputParser, IoHandler, Key}, terminal::Terminal};
 
+static SIGINT: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn handle_sigint(_: libc::c_int) {
+    SIGINT.store(true, Ordering::Relaxed);
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
+    unsafe {
+        libc::signal(libc::SIGINT, handle_sigint as *const () as libc::sighandler_t);
+    }
+
     let term = Terminal::new()?;
     let mut io_handler = IoHandler::new(&term)?;
     let mut input_parser = InputParser::new();
-    let mut state = io_handler.update(Key::Enter)?;
+    let mut state = io_handler.update(Key::Char('='))?;
 
-    while state == io::State::Continue {
+    while state == io::State::Continue && !SIGINT.load(Ordering::Relaxed) {
         input_parser.poll_key();
         if let Some(key) = input_parser.pending_keys.pop_front() {
             state = io_handler.update(key)?;

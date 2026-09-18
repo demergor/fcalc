@@ -1,15 +1,13 @@
 use core::fmt;
 use std::{
-    cmp::min,
-    error::Error,
-    fmt::Display,
-    io::{self, stdout, BufWriter, Write},
+    cmp::{max, min}, error::Error, fmt::Display, io::{self, BufWriter, Write, stdout},
 };
 
 use crate::{
     fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError},
     io::Key,
     operation::{Operation, OperationExecutionError},
+    opts,
     terminal::Terminal,
 };
 
@@ -44,6 +42,7 @@ impl IoHandler {
 
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
+
             Key::Char('=') => {
                 if self.syntax_error()? {
                     return Ok(State::Continue);
@@ -57,8 +56,6 @@ impl IoHandler {
                 cur_expr.collapse()?;
                 cur_expr.write_chars(cur_line)?;
                 self.cur_col = cur_line.len();
-
-                self.render()?;
             }
             Key::Enter => {
                 if self.syntax_error()? {
@@ -70,23 +67,16 @@ impl IoHandler {
                     cur_expr.collapse()?;
                     cur_expr.write_chars(cur_line)?;
                     let cur_line = self.cur_pair()?.1;
-                    print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
                     self.cur_col = cur_line.len();
-                    print!("\x1b[{}G", self.cur_col + 1);
-                    stdout().flush()?;
+                } else {
+                    let child_expr = self.fold_exprs.pop();
+                    self.lines.pop();
 
-                    return Ok(State::Continue);
+                    let (parent_expr, parent_line) = self.cur_pair()?;
+                    parent_expr.change_operand(child_expr.unwrap().evaluate()?);
+                    parent_expr.write_chars(parent_line)?;
+                    self.cur_col = parent_line.len();
                 }
-
-                let child_expr = self.fold_exprs.pop();
-                self.lines.pop();
-
-                let (parent_expr, parent_line) = self.cur_pair()?;
-                parent_expr.change_operand(child_expr.unwrap().evaluate()?);
-                parent_expr.write_chars(parent_line)?;
-                self.cur_col = parent_line.len();
-
-                self.render()?;
             }
             Key::Char('q') => {
                 return Ok(State::Quit(
@@ -103,7 +93,6 @@ impl IoHandler {
                 cur_expr.write_chars(cur_line)?;
 
                 self.cur_col = cur_line.len();
-                self.render()?;
             }
             Key::Char('C') => {
                 self.fold_exprs.clear();
@@ -116,7 +105,6 @@ impl IoHandler {
                 cur_expr.write_chars(cur_line)?;
 
                 self.cur_col = cur_line.len();
-                self.render()?;
             }
             Key::Char('r') => {
                 let cur_col = self.cur_col;
@@ -128,8 +116,6 @@ impl IoHandler {
 
                 cur_expr.reverse();
                 cur_expr.write_chars(cur_line)?;
-
-                self.render()?;
             }
             Key::Char('e') => {
                 let cur_col = self.cur_col;
@@ -149,14 +135,9 @@ impl IoHandler {
                 let (new_cur_expr, new_cur_line) = self.cur_pair()?;
                 new_cur_expr.write_chars(new_cur_line)?;
                 self.cur_col = new_cur_line.len();
-
-                self.render()?;
             }
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
-                let cur_line = self.cur_pair()?.1;
-                assert!(!cur_line.is_empty());
-                cur_line[0] = op.as_char();
-                print!("\r{}", op.as_char());
+                self.cur_pair()?.0.change_operation(op);
             }
             Key::Char(ch) if ch == 'w' || ch == 'b' => {
                 let get_operand_idx = if ch == 'w' {
@@ -175,37 +156,45 @@ impl IoHandler {
                 };
 
                 self.cur_col = op_end - 1;
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
+
+                return Ok(State::Continue);
             }
             Key::Char(ch) => {
                 let mut cur_col = self.cur_col;
                 let cur_line = self.cur_pair()?.1;
                 cur_line.insert(cur_col, ch);
-                cur_col += 1;
-
-                print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
-                self.reeval()?;
+                cur_col = if cur_col < 2 {
+                    3
+                } else {
+                    cur_col + 1
+                };
 
                 let (cur_expr, cur_line) = self.cur_pair()?;
-                if cur_expr.reparse(cur_line, cur_col).is_ok() {
-                    self.render()?;
-                } 
+                if !ch.is_whitespace() && cur_expr.reparse(cur_line, cur_col).is_ok() {
+                    cur_expr.write_chars(cur_line)?;
+                } else {
+                    print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
+                    self.reeval()?;
+                }
 
-                self.cur_col = cur_col.clamp(0, self.cur_pair()?.1.len());
+                self.cur_col = cur_col.clamp(2, self.cur_pair()?.1.len() - 1);
             }
             Key::Backspace => {
                 if self.cur_col < 2 {
                     return Ok(State::Continue);
                 }
 
-                let mut cur_col = self.cur_col - 1;
+                let cur_col = self.cur_col - 1;
                 let cur_line = self.cur_pair()?.1;
-                cur_col = min(cur_col, cur_line.len() - 1);
 
                 cur_line.remove(cur_col);
                 print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
 
                 self.reeval()?;
-                self.cur_col = min(cur_col, self.cur_pair()?.1.len());
+                self.cur_col = cur_col;
+
             }
             Key::ArrowRight => {
                 self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len())
@@ -217,9 +206,10 @@ impl IoHandler {
                     self.cur_col - 1
                 }
             }
-            _ => self.render()?,
+            _ => (),
         }
 
+        self.render()?;
         print!("\x1b[{}G", self.cur_col + 1);
         stdout().flush()?;
 
@@ -231,7 +221,7 @@ impl IoHandler {
         self.ripple_update()?;
         let to_skip: usize = {
             let mut idx = self.lines.len();
-            let mut height = self.term_height;
+            let mut height = self.term_height - 1;
 
             while idx > 0 && height > 0 {
                 idx -= 1;
@@ -252,7 +242,15 @@ impl IoHandler {
         const RESET: &str = "\x1b[0m";
 
         let mut out = BufWriter::new(std::io::stdout().lock());
-        write!(out, "\x1b[H{HIDE_CURSOR}{ERASE_FROM_CURSOR}")?;
+        if !opts::DEBUG {
+            write!(out, "\x1b[H{HIDE_CURSOR}{ERASE_FROM_CURSOR}")?;
+        } else {
+            write!(out, "\n")?;
+        }
+
+        if self.fold_exprs.len() > 1 || !self.fold_exprs[0].is_singleton() {
+            write!(out, "\x1b[1m\x1b[4m{}\x1b[0m\r\n", self.fold_exprs[0].evaluate()?)?;
+        }
 
         let expr_it = self.fold_exprs.iter().skip(to_skip);
         let line_it = self.lines.iter().skip(to_skip);
@@ -261,7 +259,10 @@ impl IoHandler {
 
         while let Some((expr, line)) = pair_it.next() {
             let Some(operand_idx) = expr.cur_operand() else {
-                panic!("Fold expression without operand detected while rendering!");
+                let fold_expr_str: String = line.clone().iter().collect();
+                write!(out, "{}{}", if first { "" } else { "\r\n" }, fold_expr_str)?;
+                first = false;
+                continue;
             };
 
             let mut line_cp = line.clone();
@@ -324,6 +325,7 @@ impl IoHandler {
             "Can't evaluate `FoldExpr`s result ",
             "even though there is no parsing error!",
         ));
+    
 
         loop {
             let next_expr = expr_it.next();
@@ -336,6 +338,7 @@ impl IoHandler {
                     }
 
                     expr.write_chars(line)?;
+
                     last_result = expr
                         .evaluate()
                         .map_err(|_| RenderError::FoldExprResultError)?;
@@ -344,6 +347,9 @@ impl IoHandler {
                 _ => return Err(RenderError::OutOfSync),
             }
         }
+
+
+
     }
 
     fn cur_pair(

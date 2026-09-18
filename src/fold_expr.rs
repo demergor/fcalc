@@ -54,7 +54,10 @@ impl FoldExpr {
 
         match self.cur_operand {
             Some(idx) if idx < self.operands.len() => (),
-            None if self.operands.is_empty() => return Ok(()),
+            None if self.operands.is_empty() => {
+                write!(cw, " ")?;
+                return Ok(());
+            }
             Some(idx) => panic!(
                 "Invalid index stored as current operand to `FoldExpr`: \
                 index is {idx}, but only {} operands exist!",
@@ -88,6 +91,10 @@ impl FoldExpr {
         Ok(())
     }
 
+    pub fn change_operation(&mut self, new_op: Operation) {
+        self.operation = new_op;
+    }
+
     pub fn change_operand(&mut self, new_val: f64) -> bool {
         let Some(cur_operand) = self.cur_operand else {
             panic!("No current operand to change in fold expression!");
@@ -106,12 +113,12 @@ impl FoldExpr {
     }
 
     pub fn next_operand(&mut self) -> Option<usize> {
-        let Some(id) = self.cur_operand else {
+        let Some(op_idx) = self.cur_operand else {
             assert!(!self.operands.is_empty());
             return None;
         };
 
-        self.cur_operand = Some((id + 1) % self.operands.len());
+        self.cur_operand = Some((op_idx + 1) % self.operands.len());
 
         self.cur_operand
     }
@@ -129,6 +136,10 @@ impl FoldExpr {
         });
 
         self.cur_operand
+    }
+
+    pub fn is_singleton(&self) -> bool {
+        self.operands.len() <= 1
     }
 
     pub fn cur_operand_to_last(&mut self) {
@@ -308,6 +319,13 @@ fn parse(
             cur / comp_div
         });
     }
+
+    if operands.len() > 1 && operation == Operation::Addition {
+        operands.retain(|x| *x != 0.0);
+        if let Some(op_idx) = cur_operand {
+            cur_operand = Some(op_idx.clamp(0, operands.len() - 1));
+        }
+    } 
 
     Ok((operation, operands, cur_operand))
 }

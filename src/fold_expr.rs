@@ -1,7 +1,6 @@
 use core::fmt;
 use std::{
-    error::Error,
-    fmt::{Display, Formatter, Write},
+    error::Error, fmt::{Display, Formatter, Write},
 };
 
 use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
@@ -68,12 +67,12 @@ impl FoldExpr {
             ),
         };
 
-        for i in 0..self.operands.len() {
-            if i != 0 || !self.operation.is_unary() {
-                write!(cw, " ")?;
-            }
+        if !self.operation.is_unary() {
+            write!(cw, " ")?;
+        }
 
-            write!(cw, "{}", self.operands[i])?;
+        for i in 0..self.operands.len() {
+            write!(cw, "{} ", self.operands[i])?;
         }
 
         Ok(())
@@ -263,7 +262,6 @@ fn parse(
     let mut already_negative = false;
     let mut comp_div = 1.0;
     let mut first_digit = true;
-    let mut reverse = false;
     let mut pos = 0;
     let mut cur_operand = None;
 
@@ -287,13 +285,6 @@ fn parse(
                 }
             }
             '.' if !already_float => already_float = true,
-            'r' => {
-                if let Some(next) = it.next() {
-                    return Err(ParseFoldExprError::InvalidCharacter(*next, pos).into());
-                }
-
-                reverse = true;
-            }
             '-' if !already_negative => {
                 already_negative = true;
             }
@@ -316,10 +307,6 @@ fn parse(
         } else {
             cur / comp_div
         });
-    }
-
-    if reverse {
-        operands.reverse();
     }
 
     Ok((operation, operands, cur_operand))

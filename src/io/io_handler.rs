@@ -31,10 +31,12 @@ impl IoHandler {
             return Err(IoError::HandlerConstructionError);
         };
 
+        let buf_len = buf.len();
+
         Ok(IoHandler {
             fold_exprs: vec![root_expr],
             lines: vec![buf],
-            cur_col: 3,
+            cur_col: buf_len,
             term_width: bounds.width,
             term_height: bounds.height,
         })
@@ -42,14 +44,24 @@ impl IoHandler {
 
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
-            Key::Enter => {
-                let syntax_error = {
-                    let cur_col = self.cur_col;
-                    let (cur_expr, cur_line) = self.cur_pair()?;
-                    cur_expr.reparse(cur_line, cur_col).is_err()
-                };
+            Key::Char('=') => {
+                if self.syntax_error()? {
+                    return Ok(State::Continue);
+                }
 
-                if syntax_error {
+                self.ripple_update()?;
+                self.fold_exprs.truncate(1);
+                self.lines.truncate(1);
+
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                cur_expr.collapse()?;
+                cur_expr.write_chars(cur_line)?;
+                self.cur_col = cur_line.len();
+
+                self.render()?;
+            }
+            Key::Enter => {
+                if self.syntax_error()? {
                     return Ok(State::Continue);
                 }
 
@@ -165,13 +177,20 @@ impl IoHandler {
                 self.cur_col = op_end - 1;
             }
             Key::Char(ch) => {
-                let cur_col = self.cur_col;
+                let mut cur_col = self.cur_col;
                 let cur_line = self.cur_pair()?.1;
                 cur_line.insert(cur_col, ch);
+                cur_col += 1;
 
                 print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
                 self.reeval()?;
-                self.cur_col += 1;
+
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                if cur_expr.reparse(cur_line, cur_col).is_ok() {
+                    self.render()?;
+                } 
+
+                self.cur_col = cur_col.clamp(0, self.cur_pair()?.1.len());
             }
             Key::Backspace => {
                 if self.cur_col < 2 {
@@ -246,14 +265,10 @@ impl IoHandler {
             };
 
             let mut line_cp = line.clone();
-            let Some((start, end)) = nth_operand_pos(&line_cp, operand_idx) else {
-                panic!(concat!(
-                    "Couldn't find nth operand in ",
-                    "fold expression's string representation!"
-                ));
-            };
+            let pos_opt = nth_operand_pos(&line_cp, operand_idx);
 
-            if pair_it.peek().is_some() {
+            if pos_opt.is_some() && pair_it.peek().is_some() {
+                let (start, end) = pos_opt.unwrap();
                 for ch in HIGHLIGHT_COLOR.chars().rev() {
                     line_cp.insert(start, ch)
                 }
@@ -359,6 +374,12 @@ impl IoHandler {
         }
 
         Ok(())
+    }
+
+    fn syntax_error(&mut self) -> Result<bool, Box<dyn Error>> {
+        let cur_col = self.cur_col;
+        let (cur_expr, cur_line) = self.cur_pair()?;
+        Ok(cur_expr.reparse(cur_line, cur_col).is_err())
     }
 }
 

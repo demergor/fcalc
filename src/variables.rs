@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     env,
     f64::consts::{E, EULER_GAMMA, PI},
     fs::File,
@@ -11,11 +11,35 @@ use std::{
 static VAR_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 pub struct VarMap {
-    map: HashMap<String, f64>,
+    map: BTreeMap<String, f64>,
 }
 
 impl VarMap {
-    pub fn populate_from_config(&mut self) -> io::Result<()> {
+    pub fn new() -> Result<VarMap, io::Result<()>> {
+        let mut var_map = VarMap {
+            map: BTreeMap::from([
+                (String::from("pi"), PI),
+                (String::from("e"), E),
+                (String::from("euler_gamma"), EULER_GAMMA),
+            ]),
+        };
+
+        var_map.populate_from_config().map_err(|err| Err(err))?;
+
+        Ok(var_map)
+    }
+
+    pub fn insert(&mut self, line: String) -> bool {
+        let Some((key, val)) = parse_line(line) else {
+            return false;
+        };
+
+        self.map.insert(key, val);
+
+        true
+    }
+
+    fn populate_from_config(&mut self) -> io::Result<()> {
         let file = match File::open(config_path()) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
@@ -44,18 +68,6 @@ impl Drop for VarMap {
 
         for (key, val) in &self.map {
             let _ = writeln!(file, "VAR {key}:{val}");
-        }
-    }
-}
-
-impl Default for VarMap {
-    fn default() -> Self {
-        VarMap {
-            map: HashMap::from([
-                (String::from("pi"), PI),
-                (String::from("e"), E),
-                (String::from("euler_gamma"), EULER_GAMMA),
-            ]),
         }
     }
 }

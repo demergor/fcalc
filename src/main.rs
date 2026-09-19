@@ -21,8 +21,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     fs::create_dir_all(env::home_dir().unwrap().join(".config/fcalc"))?;
-    let mut var_map = VarMap::default();
-    var_map.populate_from_config()?;
 
     let term = Terminal::new()?;
     let mut io_handler = IoHandler::new(&term)?;

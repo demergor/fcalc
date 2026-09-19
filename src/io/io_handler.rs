@@ -1,18 +1,23 @@
 use core::fmt;
 use std::{
-    cmp::{max, min}, error::Error, fmt::Display, io::{self, BufWriter, Write, stdout},
+    cmp::{max, min},
+    error::Error,
+    fmt::Display,
+    io::{self, stdout, BufWriter, Write},
 };
 
 use crate::{
-    fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError},
-    io::Key,
-    operation::{Operation, OperationExecutionError},
-    opts,
-    terminal::Terminal,
+    fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError}, io::{Key, State::Quit}, operation::{Operation, OperationExecutionError}, opts, terminal::Terminal, variables::VarMap,
 };
 
 pub struct IoHandler {
+    mode: Mode,
+    confirm_enter: bool,
+
     fold_exprs: Vec<FoldExpr>,
+    // func_map: FunctionMap,
+    var_map: VarMap,
+
     lines: Vec<Vec<char>>,
     cur_col: usize,
 
@@ -25,6 +30,10 @@ impl IoHandler {
         let root_expr = FoldExpr::default();
         let mut buf = Vec::new();
 
+        let Ok(var_map) = VarMap::new() else {
+            panic!("Couldn't create `VarMap`");
+        };
+
         if root_expr.write_chars(&mut buf).is_err() {
             return Err(IoError::HandlerConstructionError);
         };
@@ -32,7 +41,11 @@ impl IoHandler {
         let buf_len = buf.len();
 
         Ok(IoHandler {
+            mode: Mode::Normal,
+            confirm_enter: false,
             fold_exprs: vec![root_expr],
+            // func_map,
+            var_map,
             lines: vec![buf],
             cur_col: buf_len,
             term_width: bounds.width,
@@ -41,8 +54,43 @@ impl IoHandler {
     }
 
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
-        match key {
+        match self.confirm_enter {
+            true if key == Key::Enter => {
+                self.confirm_enter = false;
+                self.render()?;
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
 
+                return Ok(State::Continue);
+            }
+            true if key == Key::Char('h') => {
+                print!("\x1b[H\x1b[2K\x1b[3mPress ENTER to continue\x1b[0m");
+                stdout().flush()?;
+                return Ok(State::Continue);
+            }
+            true if key == Key::Char('q') => {
+                return Ok(Quit(self.cur_pair()?.0.evaluate()?));
+            }
+            true => return Ok(State::Continue),
+            _ => (),
+        }
+
+        if self.confirm_enter && key == Key::Enter {
+            self.confirm_enter = false;
+            return Ok(State::Continue);
+        }
+        
+        match self.mode {
+            Mode::Normal => self.handle_normal(key),
+            Mode::FuncDecl => self.handle_func_decl(key),
+            Mode::FuncSelect => self.handle_func_select(key),
+            Mode::VarDecl => self.handle_var_decl(key),
+            Mode::VarSelect => self.handle_var_select(key),
+        }
+    }
+
+    fn handle_normal(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        match key {
             Key::Char('=') => {
                 if self.syntax_error()? {
                     return Ok(State::Continue);
@@ -140,7 +188,7 @@ impl IoHandler {
                 let cur_col = self.cur_col;
                 let (cur_expr, cur_line) = self.cur_pair()?;
                 cur_line[0] = op.as_char();
-                
+
                 if cur_expr.reparse(cur_line, cur_col).is_err() {
                     self.reeval()?;
                     print!("\x1b[{}G", self.cur_col + 1);
@@ -171,15 +219,33 @@ impl IoHandler {
 
                 return Ok(State::Continue);
             }
+            Key::Char('V') => {
+                self.mode = Mode::VarDecl;
+                if !opts::DEBUG {
+                    print!("\x1b[H\x1b[2J");
+                }
+
+                // TODO: Modularize this out and find a way to interleave less cursor
+                // position manipulation and bare prints into the logic code
+                println!(concat!(
+                    "Enter your variable in this format: ",
+                    "\x1b[32mpi\x1b[0m\x1b[33m:\x1b[0m\x1b[34m3.14\x1b[0m"
+                ));
+
+                let var_buf = vec!['V', 'A', 'R', ' '];
+                print!("{}", var_buf.iter().collect::<String>());
+                stdout().flush()?;
+
+                self.cur_col = var_buf.len();
+                self.lines.push(var_buf);
+
+                return Ok(State::Continue);
+            }
             Key::Char(ch) => {
                 let mut cur_col = self.cur_col;
                 let cur_line = self.cur_pair()?.1;
                 cur_line.insert(cur_col, ch);
-                cur_col = if cur_col < 3 {
-                    3
-                } else {
-                    cur_col + 1
-                };
+                cur_col = if cur_col < 3 { 3 } else { cur_col + 1 };
 
                 let (cur_expr, cur_line) = self.cur_pair()?;
                 if !ch.is_whitespace() && cur_expr.reparse(cur_line, cur_col).is_ok() {
@@ -216,7 +282,6 @@ impl IoHandler {
                 }
 
                 self.cur_col = cur_col;
-
             }
             Key::ArrowRight => {
                 self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
@@ -245,6 +310,109 @@ impl IoHandler {
         stdout().flush()?;
 
         Ok(State::Continue)
+    }
+
+    fn handle_func_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        todo!();
+    }
+
+    fn handle_func_select(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        todo!();
+    }
+
+    fn handle_var_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        // TODO: Maybe modularize this into multiple files
+        match key {
+            Key::Char('q') => {
+                self.lines.pop();
+                self.mode = Mode::Normal;
+                self.render()?;
+
+                self.cur_col = self.cur_pair()?.1.len();
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
+
+                return Ok(State::Continue);
+            }
+            Key::Char('h') => {
+                // TODO: Add hints where appropriate
+                print!(concat!(
+                    "\x1b[H\x1b[2K\x1b[3mThe \"VAR \" prefix declares a new variable, ",
+                    "\"DEL \" deletes an existing one\x1b[0m\n"
+                ));
+                stdout().flush()?;
+            }
+            Key::Enter => {
+                let var_decl: String = self.cur_pair()?.1.iter().collect();
+                // TODO: Change the `insert` signature to handle deletions as well
+                let success = self.var_map.insert(var_decl);
+
+                self.lines.pop();
+                self.mode = Mode::Normal;
+                self.render()?;
+
+                // TODO: Make this display the correct operation that succeeded/failed
+                // (Both a declaration or a deletion could have been attempted)
+                if success {
+                    print!("\x1b[H\x1b[42mVARIABLE DECLARATION SUCCESSFUL!\x1b[0m");
+                } else {
+                    print!("\x1b[H\x1b[41mVARIABLE DECLARATION FAILED!\x1b[0m");
+                }
+
+                stdout().flush()?;
+                self.cur_col = self.cur_pair()?.1.len();
+                self.confirm_enter = true;
+
+                return Ok(State::Continue);
+            }
+            Key::Char(ch) => {
+                let cur_col = self.cur_col;
+                let cur_line = self.cur_pair()?.1;
+
+                cur_line.insert(cur_col, ch);
+                self.cur_col = if cur_col == self.cur_pair()?.1.len() {
+                    self.cur_pair()?.1.len()
+                } else {
+                    self.cur_col + 1
+                };
+            }
+            Key::Backspace => {
+                if self.cur_col == 0 {
+                    return Ok(State::Continue);
+                }
+
+                let cur_col = self.cur_col - 1;
+                let cur_line = self.cur_pair()?.1;
+
+                if cur_line.is_empty() {
+                    return Ok(State::Continue);
+                }
+
+                cur_line.remove(cur_col);
+                self.cur_col = cur_col;
+            }
+            Key::ArrowRight => {
+                self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
+            }
+            Key::ArrowLeft => {
+                self.cur_col = if self.cur_col == 0 {
+                    0
+                } else {
+                    self.cur_col - 1
+                };
+            }
+            _ => (),
+        }
+
+        let line: String = self.cur_pair()?.1.iter().collect();
+        print!("\r\x1b[2K{}\x1b[{}G", line, self.cur_col + 1);
+        stdout().flush()?;
+
+        Ok(State::Continue)
+    }
+
+    fn handle_var_select(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        todo!();
     }
 
     fn render(&mut self) -> Result<(), RenderError> {
@@ -279,9 +447,7 @@ impl IoHandler {
             write!(out, "\n")?;
         }
 
-        if self.fold_exprs.len() > 1 || !self.fold_exprs[0].is_singleton() {
-            write!(out, "\x1b[1m\x1b[4m{}\x1b[0m\r\n", self.fold_exprs[0].evaluate()?)?;
-        }
+        write!(out, "\x1b[1m\x1b[4m{}\x1b[0m\r\n", self.fold_exprs[0].evaluate()?)?;
 
         let expr_it = self.fold_exprs.iter().skip(to_skip);
         let line_it = self.lines.iter().skip(to_skip);
@@ -356,7 +522,6 @@ impl IoHandler {
             "Can't evaluate `FoldExpr`s result ",
             "even though there is no parsing error!",
         ));
-    
 
         loop {
             let next_expr = expr_it.next();
@@ -378,9 +543,6 @@ impl IoHandler {
                 _ => return Err(RenderError::OutOfSync),
             }
         }
-
-
-
     }
 
     fn cur_pair(
@@ -424,6 +586,14 @@ impl IoHandler {
 pub enum State {
     Continue,
     Quit(f64),
+}
+
+enum Mode {
+    Normal,
+    FuncDecl,
+    FuncSelect,
+    VarDecl,
+    VarSelect,
 }
 
 #[derive(Debug)]

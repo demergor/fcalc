@@ -194,7 +194,7 @@ impl IoHandler {
                     return Ok(State::Continue);
                 }
 
-                self.cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len(), 2));
+                self.cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len() - 1, 2));
             }
             Key::Backspace => {
                 if self.cur_col < 2 {
@@ -219,14 +219,23 @@ impl IoHandler {
 
             }
             Key::ArrowRight => {
-                self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len())
+                self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
+
+                return Ok(State::Continue);
             }
             Key::ArrowLeft => {
                 self.cur_col = if self.cur_col <= 1 {
                     1
                 } else {
                     self.cur_col - 1
-                }
+                };
+
+                print!("\x1b[{}G", self.cur_col + 1);
+                stdout().flush()?;
+
+                return Ok(State::Continue);
             }
             _ => (),
         }

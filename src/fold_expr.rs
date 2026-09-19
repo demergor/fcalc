@@ -78,6 +78,8 @@ impl FoldExpr {
             write!(cw, "{} ", self.operands[i])?;
         }
 
+        print!("{buf:?}");
+
         Ok(())
     }
 

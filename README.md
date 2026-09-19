@@ -1,5 +1,6 @@
 Work In Progress: 
-- add persistent variables/constants
+- add usable/user-inputtable persistent variables/constants
+- centralize config location
 
 Planned features:
 - add functions 

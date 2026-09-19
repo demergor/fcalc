@@ -3,10 +3,11 @@ mod io;
 mod operation;
 mod opts;
 mod terminal;
+mod variables;
 
-use std::{error::Error, sync::atomic::{AtomicBool, Ordering}};
+use std::{env, error::Error, fs, sync::atomic::{AtomicBool, Ordering}};
 
-use crate::{io::{InputParser, IoHandler, Key}, terminal::Terminal};
+use crate::{io::{InputParser, IoHandler, Key}, terminal::Terminal, variables::VarMap};
 
 static SIGINT: AtomicBool = AtomicBool::new(false);
 
@@ -18,6 +19,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     unsafe {
         libc::signal(libc::SIGINT, handle_sigint as *const () as libc::sighandler_t);
     }
+
+    fs::create_dir_all(env::home_dir().unwrap().join(".config/fcalc"))?;
+    let mut var_map = VarMap::default();
+    var_map.populate_from_config()?;
 
     let term = Terminal::new()?;
     let mut io_handler = IoHandler::new(&term)?;

@@ -91,10 +91,6 @@ impl FoldExpr {
         Ok(())
     }
 
-    pub fn change_operation(&mut self, new_op: Operation) {
-        self.operation = new_op;
-    }
-
     pub fn change_operand(&mut self, new_val: f64) -> bool {
         let Some(cur_operand) = self.cur_operand else {
             panic!("No current operand to change in fold expression!");
@@ -320,12 +316,19 @@ fn parse(
         });
     }
 
-    if operands.len() > 1 && operation == Operation::Addition {
-        operands.retain(|x| *x != 0.0);
-        if let Some(op_idx) = cur_operand {
-            cur_operand = Some(op_idx.clamp(0, operands.len() - 1));
-        }
+    if operands.len() <= 1 || operation != Operation::Addition {
+        return Ok((operation, operands, cur_operand));
     } 
+
+    if operands.iter().all(|x| *x == 0.0) {
+        operands.dedup();
+    } else {
+        operands.retain(|x| *x != 0.0);
+    }
+
+    if let Some(op_idx) = cur_operand {
+        cur_operand = Some(op_idx.clamp(0, operands.len() - 1));
+    }
 
     Ok((operation, operands, cur_operand))
 }

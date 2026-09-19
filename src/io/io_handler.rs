@@ -137,7 +137,17 @@ impl IoHandler {
                 self.cur_col = new_cur_line.len();
             }
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
-                self.cur_pair()?.0.change_operation(op);
+                let cur_col = self.cur_col;
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                cur_line[0] = op.as_char();
+                
+                if cur_expr.reparse(cur_line, cur_col).is_err() {
+                    self.reeval()?;
+                    print!("\x1b[{}G", self.cur_col + 1);
+                    stdout().flush()?;
+
+                    return Ok(State::Continue);
+                }
             }
             Key::Char(ch) if ch == 'w' || ch == 'b' => {
                 let get_operand_idx = if ch == 'w' {
@@ -165,7 +175,7 @@ impl IoHandler {
                 let mut cur_col = self.cur_col;
                 let cur_line = self.cur_pair()?.1;
                 cur_line.insert(cur_col, ch);
-                cur_col = if cur_col < 2 {
+                cur_col = if cur_col < 3 {
                     3
                 } else {
                     cur_col + 1
@@ -177,9 +187,14 @@ impl IoHandler {
                 } else {
                     print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
                     self.reeval()?;
+                    self.cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len(), 2));
+                    print!("\x1b[{}G", self.cur_col + 1);
+                    stdout().flush()?;
+
+                    return Ok(State::Continue);
                 }
 
-                self.cur_col = cur_col.clamp(2, self.cur_pair()?.1.len() - 1);
+                self.cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len(), 2));
             }
             Key::Backspace => {
                 if self.cur_col < 2 {
@@ -187,12 +202,19 @@ impl IoHandler {
                 }
 
                 let cur_col = self.cur_col - 1;
-                let cur_line = self.cur_pair()?.1;
+                let (cur_expr, cur_line) = self.cur_pair()?;
 
                 cur_line.remove(cur_col);
-                print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
 
-                self.reeval()?;
+                if cur_expr.reparse(cur_line, cur_col).is_err() {
+                    print!("\r\x1b[2K{}", cur_line.iter().collect::<String>());
+                    self.reeval()?;
+                    self.cur_col = cur_col;
+                    print!("\x1b[{}G", self.cur_col + 1);
+                    stdout().flush()?;
+                    return Ok(State::Continue);
+                }
+
                 self.cur_col = cur_col;
 
             }

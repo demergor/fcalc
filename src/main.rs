@@ -5,9 +5,17 @@ mod opts;
 mod terminal;
 mod variables;
 
-use std::{env, error::Error, fs, sync::atomic::{AtomicBool, Ordering}};
+use std::{
+    env,
+    error::Error,
+    fs,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-use crate::{io::{InputParser, IoHandler, Key}, terminal::Terminal, variables::VarMap};
+use crate::{
+    io::{InputParser, IoHandler, Key},
+    terminal::Terminal,
+};
 
 static SIGINT: AtomicBool = AtomicBool::new(false);
 
@@ -17,7 +25,10 @@ extern "C" fn handle_sigint(_: libc::c_int) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     unsafe {
-        libc::signal(libc::SIGINT, handle_sigint as *const () as libc::sighandler_t);
+        libc::signal(
+            libc::SIGINT,
+            handle_sigint as *const () as libc::sighandler_t,
+        );
     }
 
     fs::create_dir_all(env::home_dir().unwrap().join(".config/fcalc"))?;

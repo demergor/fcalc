@@ -1,4 +1,8 @@
-struct VariableHandler {
+use std::error::Error;
+
+use crate::{io::{Key, State}, opts};
+
+pub struct VariableHandler {
     agency: Agency,
     cur_col: usize,
     input_buf: Vec<char>,
@@ -7,7 +11,7 @@ struct VariableHandler {
 }
 
 impl VariableHandler {
-    fn handle(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+    pub fn handle(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match self.agency {
             Agency::Declaration => handle_decl(key),
             Agency::Selection => handle_select(key),
@@ -103,9 +107,27 @@ impl VariableHandler {
 
         Ok(State::Continue)
     }
+
+    fn render(&mut self) {
+        if !opts::DEBUG {
+            print!("\x1b[H\x1b[2J");
+        }
+
+        println!(concat!(
+            "Enter your variable in this format: ",
+            "\x1b[32mpi\x1b[0m\x1b[33m:\x1b[0m\x1b[34m3.14\x1b[0m",
+        ));
+
+        print!("{}", self.input_buf.iter().collect::<String>());
+    }
+
+    fn reset_cursor_pos(&mut self) {
+        self.cur_col = self.cur_col.clamp(0, self.input_buf.len());
+        print!("\x1b[{}G", self.cur_col + 1);
+    }
 }
 
 enum Agency {
-    Declaration,
+    Definition, 
     Selection,
 }

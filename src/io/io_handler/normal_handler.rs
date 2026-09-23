@@ -195,7 +195,7 @@ impl NormalHandler {
             Key::Char('V') => return Ok(State::Continue(Mode::VariableDecl, None)),
             Key::Char('v') => return Ok(State::Continue(Mode::VariableSelect, None)),
             Key::Char(ch) => {
-                let mut cur_col = self.cur_col;
+                let mut cur_col = min(self.cur_col, self.cur_pair()?.1.len());
                 self.cur_pair()?.1.insert(cur_col, ch);
                 cur_col = if cur_col < 3 { 3 } else { cur_col + 1 };
 
@@ -334,6 +334,30 @@ impl NormalHandler {
         Ok(())
     }
 
+    pub fn handle_carry(&mut self, val: f64) -> Result<(), Box<dyn Error>> {
+        self.cur_pair()?.0.insert_operand(val);
+
+        Ok(())
+    }
+
+    pub fn reset_cursor_pos(&mut self) -> Result<(), Box<dyn Error>> {
+        let (cur_expr, cur_line) = self.cur_pair()?;
+        if let Some(op_idx) = cur_expr.cur_operand() {
+            let (_, end_pos) = nth_operand_pos( 
+                cur_line,
+                op_idx,
+            ).expect("Can't find current operand in string representation!");
+            self.cur_col = end_pos;
+        } else {
+            self.cur_col = self.cur_col.clamp(0, self.cur_pair()?.1.len());
+        }
+
+        print!("\x1b[{}G", self.cur_col + 1);
+        stdout().flush()?;
+
+        Ok(())
+    }
+
     fn flatten(&mut self) {
         // One level of dupe-nesting allowed; might come in handy in certain situations
         while self.fold_exprs.len() >= 3 {
@@ -424,24 +448,6 @@ impl NormalHandler {
         let cur_col = self.cur_col;
         let (cur_expr, cur_line) = self.cur_pair()?;
         Ok(cur_expr.reparse(cur_line, cur_col).is_err())
-    }
-
-    fn reset_cursor_pos(&mut self) -> Result<(), Box<dyn Error>> {
-        let (cur_expr, cur_line) = self.cur_pair()?;
-        if let Some(op_idx) = cur_expr.cur_operand() {
-            let (_, end_pos) = nth_operand_pos( 
-                cur_line,
-                op_idx,
-            ).expect("Can't find current operand in string representation!");
-            self.cur_col = end_pos;
-        } else {
-            self.cur_col = self.cur_col.clamp(0, self.cur_pair()?.1.len());
-        }
-
-        print!("\x1b[{}G", self.cur_col + 1);
-        stdout().flush()?;
-
-        Ok(())
     }
 
     fn cursor_to(&mut self, pos: usize) -> Result<(), Box<dyn Error>> {

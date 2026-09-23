@@ -1,6 +1,5 @@
 Work In Progress: 
-- restructure the modules and deduplicate output printing and input handling logic
-- add usable/user-inputtable persistent variables/constants
+- also show variable matches in the declaration window 
 - centralize config location
 
 Planned features:

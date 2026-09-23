@@ -106,6 +106,18 @@ impl FoldExpr {
         dirty
     }
 
+    pub fn insert_operand(&mut self, val: f64) {
+        let Some(op_idx) = self.cur_operand else {
+            self.operands.push(val);
+            self.cur_operand = Some(0);
+            return;
+        };
+
+        let new_op_idx = op_idx + 1;
+        self.operands.insert(new_op_idx, val);
+        self.cur_operand = Some(new_op_idx);
+    }
+
     pub fn cur_operand(&self) -> Option<usize> {
         self.cur_operand
     }

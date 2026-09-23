@@ -51,6 +51,7 @@ impl IoHandler {
             Mode::FunctionSelect => todo!(), // self.func_handler.handle_select(key)?,
             Mode::VariableDecl => self.var_handler.handle_decl(key)?,
             Mode::VariableSelect => self.var_handler.handle_select(key)?,
+            _ => unreachable!(),
         };
 
         if state == State::ForceQuit {
@@ -58,13 +59,19 @@ impl IoHandler {
         }
 
         let state_cp = state.clone();
-        let State::Continue(mode, msg) = state else {
+        let State::Continue(mut mode, msg) = state else {
             return Ok(state);
         };
 
         if self.mode != mode {
             match mode {
                 Mode::Normal => self.normal_handler.render()?,
+                Mode::NormalCarry(carry) => {
+                    self.normal_handler.handle_carry(carry)?;
+                    self.normal_handler.render()?;
+                    self.normal_handler.reset_cursor_pos()?;
+                    mode = Mode::Normal;
+                }
                 Mode::FunctionDecl => todo!(), // self.func_handler.render_decl()?,
                 Mode::FunctionSelect => todo!(), //self.func_handler.render_select()?,
                 Mode::VariableDecl => self.var_handler.render_decl()?,
@@ -88,9 +95,10 @@ pub enum State {
     ForceQuit,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Mode {
     Normal,
+    NormalCarry(f64),
     FunctionDecl,
     FunctionSelect,
     VariableDecl,

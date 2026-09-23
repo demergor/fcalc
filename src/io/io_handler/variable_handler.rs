@@ -6,10 +6,15 @@ use std::{
 
 use crate::{
     io::{
-        Key, State, io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET, RESET_COLORS, SUCCESS_COLOR,
+        io_handler::{
+            IoError, Mode, ERASE_FROM_CURSOR, ERR_COLOR, HIGHLIGHT_COLOR, HOME, RESET,
+            RESET_COLORS, SUCCESS_COLOR,
         },
-    }, opts, terminal::Terminal, variables::{HandleResult, VarMap},
+        Key, State,
+    },
+    opts,
+    terminal::Terminal,
+    variables::{HandleResult, VarMap},
 };
 
 const DECL_HINT: &str = "\"VAR \" prefix: declare a new variable, \
@@ -106,12 +111,6 @@ impl VariableHandler {
                     )),
                 };
             }
-            Key::Char(ch) if ch.is_uppercase() => {
-                return Ok(State::Continue(
-                    Mode::VariableDecl,
-                    Some(String::from("Use the snake_case naming convention!")),
-                ));
-            }
             Key::Char(ch) => {
                 self.input_buf.insert(self.cur_col, ch);
                 self.render_decl()?;
@@ -157,6 +156,22 @@ impl VariableHandler {
                 return Ok(State::Continue(
                     Mode::Normal,
                     Some(String::from("Cancelled variable selection")),
+                ));
+            }
+            Key::Enter => {
+                let input: String = self.input_buf.iter().collect();
+                let matches = self.match_vec(&input, self.term_width.into());
+
+                if matches.is_empty() || self.cur_selection >= matches.len() {
+                    return Ok(State::Continue(
+                        Mode::Normal,
+                        Some(String::from("No matching variable found!")),
+                    ));
+                }
+
+                return Ok(State::Continue(
+                    Mode::NormalCarry(matches[self.cur_selection].1),
+                    Some(format!("Inserted {}", matches[self.cur_selection].0)),
                 ));
             }
             Key::Char(ch) => {
@@ -248,7 +263,15 @@ impl VariableHandler {
             return Ok(());
         }
 
-        let matches = self.match_vec(&search, width);
+        let replace: String = HIGHLIGHT_COLOR.to_owned() + &search + RESET_COLORS;
+        let matches: Vec<(String, f64, usize, usize)> = self
+            .match_vec(&search, width)
+            .iter()
+            .map(|(name, val, height, acc_height)| {
+                (name.replace(&search, &replace), *val, *height, *acc_height)
+            })
+            .collect();
+
         if matches.is_empty() {
             write!(out, "\x1b[2;{}H", self.cur_col + 1)?;
             out.flush()?;
@@ -314,7 +337,6 @@ impl VariableHandler {
         search: &str,
         width: usize,
     ) -> Vec<(String, f64, usize, usize)> {
-        let replace: String = HIGHLIGHT_COLOR.to_owned() + search + RESET_COLORS;
         let mut acc = 0;
 
         self.var_map
@@ -327,7 +349,7 @@ impl VariableHandler {
                     / width
                     + 1;
                 acc += height;
-                (key.replace(search, &replace), *val, height, acc)
+                (String::from(key), *val, height, acc)
             })
             .collect()
     }

@@ -1,133 +1,164 @@
-use std::error::Error;
+use std::{
+    cmp::min, error::Error, io::{Write, stdout},
+};
 
-use crate::{io::{Key, State}, opts};
+use crate::{
+    io::{
+        Key, State, io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HOME, IoError, Mode, RESET, SUCCESS_COLOR,
+        },
+    }, opts, terminal::Terminal, variables::{HandleResult, VarMap},
+};
+
+const DECL_HINT: &str = "The \"VAR \" prefix declares a new variable, \
+    \"DEL \" deletes an existing one\x1b[0m\n";
 
 pub struct VariableHandler {
-    agency: Agency,
     cur_col: usize,
+    var_map: VarMap,
     input_buf: Vec<char>,
     term_width: u16,
     term_height: u16,
 }
 
 impl VariableHandler {
-    pub fn handle(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
-        match self.agency {
-            Agency::Declaration => handle_decl(key),
-            Agency::Selection => handle_select(key),
-        }
+    pub fn new(bounds: &Terminal) -> Result<VariableHandler, IoError> {
+        let var_map = VarMap::new()?;
+
+        let mut var_handler = VariableHandler {
+            cur_col: 0,
+            var_map,
+            input_buf: Vec::new(),
+            term_width: bounds.width,
+            term_height: bounds.height,
+        };
+        var_handler.reset_buf();
+
+        Ok(var_handler)
     }
 
-    fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+    pub fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
             Key::Char('q') => {
-                self.lines.pop();
-                self.mode = Mode::Normal;
-                self.render()?;
-
-                self.cur_col = self.cur_pair()?.1.len();
-                print!("\x1b[{}G", self.cur_col + 1);
-                stdout().flush()?;
-
-                return Ok(State::Continue);
+                self.reset_buf();
+                return Ok(State::Continue(
+                    Mode::Normal,
+                    Some(String::from("Cancelled variable declaration")),
+                ));
             }
             Key::Char('h') => {
-                // TODO: Add hints where appropriate
-                print!(concat!(
-                        "\x1b[H\x1b[2K\x1b[3mThe \"VAR \" prefix declares a new variable, ",
-                        "\"DEL \" deletes an existing one\x1b[0m\n"
-                ));
-                stdout().flush()?;
+                return Ok(State::Continue(Mode::Normal, Some(DECL_HINT.to_owned())));
             }
             Key::Enter => {
-                let var_decl: String = self.cur_pair()?.1.iter().collect();
-                // TODO: Change the `insert` signature to handle deletions as well
-                let success = self.var_map.insert(var_decl);
+                self.reset_buf();
+                let submission: String = self.input_buf.iter().collect();
 
-                self.lines.pop();
-                self.mode = Mode::Normal;
-                self.render()?;
-
-                // TODO: Make this display the correct operation that succeeded/failed
-                // (Both a declaration or a deletion could have been attempted)
-                if success {
-                    print!("\x1b[H\x1b[42mVARIABLE DECLARATION SUCCESSFUL!\x1b[0m");
-                } else {
-                    print!("\x1b[H\x1b[41mVARIABLE DECLARATION FAILED!\x1b[0m");
-                }
-
-                stdout().flush()?;
-                self.cur_col = self.cur_pair()?.1.len();
-                self.confirm_enter = true;
-
-                return Ok(State::Continue);
-            }
-            Key::Char(ch) => {
-                let cur_col = self.cur_col;
-                let cur_line = self.cur_pair()?.1;
-
-                cur_line.insert(cur_col, ch);
-                self.cur_col = if cur_col == self.cur_pair()?.1.len() {
-                    self.cur_pair()?.1.len()
-                } else {
-                    self.cur_col + 1
+                return match self.var_map.handle(submission) {
+                    HandleResult::Insertion => Ok(State::Continue(
+                        Mode::Normal,
+                        Some(format!(
+                            "{SUCCESS_COLOR}\
+                            Variable declaration successful!\
+                            {RESET}"
+                        )),
+                    )),
+                    HandleResult::RemovalSuccess => Ok(State::Continue(
+                        Mode::Normal,
+                        Some(format!(
+                            "{SUCCESS_COLOR}\
+                            Variable removal successful!\
+                            {RESET}"
+                        )),
+                    )),
+                    HandleResult::RemovalFail => Ok(State::Continue(
+                        Mode::Normal,
+                        Some(format!(
+                            "{ERR_COLOR}\
+                            Variable removal failed!\
+                            {RESET}"
+                        )),
+                    )),
+                    HandleResult::Update => Ok(State::Continue(
+                        Mode::Normal,
+                        Some(format!(
+                            "{SUCCESS_COLOR}\
+                            Variable update successful!\
+                            {RESET}"
+                        )),
+                    )),
+                    HandleResult::GenericFail => Ok(State::Continue(
+                        Mode::Normal,
+                        Some(format!(
+                            "{ERR_COLOR}\
+                            Malformed input!\
+                            {RESET}"
+                        )),
+                    )),
                 };
             }
+            Key::Char(ch) => {
+                self.input_buf.insert(self.cur_col, ch);
+                self.render_decl()?;
+                self.cursor_to(min(self.cur_col + 1, self.input_buf.len()));
+            }
             Key::Backspace => {
-                if self.cur_col == 0 {
-                    return Ok(State::Continue);
+                if self.cur_col == 0 || self.input_buf.is_empty() {
+                    return Ok(State::Continue(
+                        Mode::VariableDecl,
+                        Some(String::from("Nothing to delete!")),
+                    ));
                 }
 
-                let cur_col = self.cur_col - 1;
-                let cur_line = self.cur_pair()?.1;
+                self.cur_col -= 1;
+                self.input_buf.remove(self.cur_col);
 
-                if cur_line.is_empty() {
-                    return Ok(State::Continue);
-                }
-
-                cur_line.remove(cur_col);
-                self.cur_col = cur_col;
+                self.render_decl()?;
+                self.cursor_to(self.cur_col);
             }
             Key::ArrowRight => {
-                self.cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
+                self.render_decl()?;
+                self.cursor_to(min(self.cur_col + 1, self.input_buf.len()));
             }
             Key::ArrowLeft => {
-                self.cur_col = if self.cur_col == 0 {
+                self.render_decl()?;
+                self.cursor_to(if self.cur_col == 0 {
                     0
                 } else {
                     self.cur_col - 1
-                };
+                });
             }
             _ => (),
         }
 
-        let line: String = self.cur_pair()?.1.iter().collect();
-        print!("\r\x1b[2K{}\x1b[{}G", line, self.cur_col + 1);
-        stdout().flush()?;
-
-        Ok(State::Continue)
+        Ok(State::Continue(Mode::Normal, None))
     }
 
-    fn render(&mut self) {
+    pub fn render_decl(&mut self) -> Result<(), Box<dyn Error>> {
         if !opts::DEBUG {
-            print!("\x1b[H\x1b[2J");
+            print!("{HOME}{ERASE_FROM_CURSOR}");
         }
 
         println!(concat!(
             "Enter your variable in this format: ",
-            "\x1b[32mpi\x1b[0m\x1b[33m:\x1b[0m\x1b[34m3.14\x1b[0m",
+            "\x1b[32mpi\x1b[33m:\x1b[34m3.14\x1b[0m",
         ));
 
         print!("{}", self.input_buf.iter().collect::<String>());
+        stdout().flush()?;
+
+        Ok(())
     }
 
-    fn reset_cursor_pos(&mut self) {
-        self.cur_col = self.cur_col.clamp(0, self.input_buf.len());
+    fn cursor_to(&mut self, pos: usize) -> Result<(), Box<dyn Error>> {
+        self.cur_col = pos;
         print!("\x1b[{}G", self.cur_col + 1);
-    }
-}
+        stdout().flush()?;
 
-enum Agency {
-    Definition, 
-    Selection,
+        Ok(())
+    }
+
+    fn reset_buf(&mut self) {
+        self.input_buf = vec!['V', 'A', 'R', ' '];
+        self.cur_col = self.input_buf.len();
+    }
 }

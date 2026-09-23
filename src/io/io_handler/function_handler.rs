@@ -1,5 +1,8 @@
+use std::{error::Error, io};
+
+use crate::terminal::Terminal;
+
 pub struct FunctionHandler {
-    agency: Agency,
     cur_col: usize,
     input_buf: Vec<char>,
 
@@ -8,12 +11,11 @@ pub struct FunctionHandler {
 }
 
 impl FunctionHandler {
-    pub fn new() -> FunctionHandler {
+    pub fn new(bounds: &Terminal) -> Result<FunctionHandler, io::Error> {
         todo!();
     }
-}
 
-enum Agency {
-    Definition, 
-    Selection,
+    pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
+        todo!();
+    }
 }

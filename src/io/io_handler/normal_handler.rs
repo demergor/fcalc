@@ -53,7 +53,6 @@ impl NormalHandler {
     pub fn handle(
         &mut self,
         key: Key,
-        msg: Option<String>,
     ) -> Result<State, Box<dyn Error>> {
         match key {
             Key::Char('=') => {
@@ -72,7 +71,7 @@ impl NormalHandler {
                 cur_expr.collapse()?;
                 cur_expr.write_chars(cur_line)?;
 
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Enter => {
@@ -96,7 +95,7 @@ impl NormalHandler {
                     parent_expr.write_chars(parent_line)?;
                 }
 
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Char('q') => {
@@ -110,7 +109,7 @@ impl NormalHandler {
             }
             Key::Char('c') => {
                 *self.cur_pair()?.0 = FoldExpr::default();
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Char('C') => {
@@ -120,7 +119,7 @@ impl NormalHandler {
                 self.fold_exprs = vec![FoldExpr::default()];
                 self.lines = vec![Vec::new()];
 
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Char('r') => {
@@ -134,7 +133,7 @@ impl NormalHandler {
                 let cur_expr = self.cur_pair()?.0;
                 cur_expr.reverse();
 
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Char('e') => {
@@ -156,7 +155,7 @@ impl NormalHandler {
                 self.fold_exprs.push(new_fold_expr);
                 self.lines.push(Vec::new());
 
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
@@ -169,7 +168,7 @@ impl NormalHandler {
                     return Ok(State::Continue(Mode::Normal, Some(err.to_string())));
                 }
 
-                self.render(msg)?;
+                self.render()?;
                 self.reset_cursor_pos();
             }
             Key::Char(ch) if ch == 'w' || ch == 'b' => {
@@ -205,7 +204,7 @@ impl NormalHandler {
                     return Ok(State::Continue(Mode::Normal, None));
                 }
 
-                self.render(msg)?;
+                self.render()?;
                 cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len() - 1, 2));
                 self.cursor_to(cur_col)?;
             }
@@ -229,7 +228,7 @@ impl NormalHandler {
                     return Ok(State::Continue(Mode::Normal, None));
                 }
 
-                self.render(msg)?;
+                self.render()?;
             }
             Key::ArrowRight => {
                 let cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
@@ -252,7 +251,7 @@ impl NormalHandler {
         Ok(State::Continue(Mode::Normal, None))
     }
 
-    fn render(&mut self, msg: Option<String>) -> Result<(), RenderError> {
+    pub fn render(&mut self) -> Result<(), RenderError> {
         self.flatten();
         self.ripple_update()?;
         let to_skip: usize = {
@@ -278,11 +277,11 @@ impl NormalHandler {
             writeln!(out)?;
         }
 
-        if let Some(msg) = msg {
-            writeln!(out, "{msg}")?;
-        } else {
-            writeln!(out, "\x1b[1m\x1b[4m{}{RESET}", self.fold_exprs[0].evaluate()?)?;
-        }
+        writeln!(
+            out,
+            "\x1b[1m\x1b[4m{}{RESET}",
+            self.fold_exprs[0].evaluate()?
+        )?;
 
         let expr_it = self.fold_exprs.iter().skip(to_skip);
         let line_it = self.lines.iter().skip(to_skip);

@@ -15,7 +15,7 @@ pub struct VarMap {
 }
 
 impl VarMap {
-    pub fn new() -> Result<VarMap, io::Result<()>> {
+    pub fn new() -> Result<VarMap, io::Error> {
         let mut var_map = VarMap {
             map: BTreeMap::from([
                 (String::from("pi"), PI),
@@ -24,19 +24,29 @@ impl VarMap {
             ]),
         };
 
-        var_map.populate_from_config().map_err(|err| Err(err))?;
+        var_map.populate_from_config()?;
 
         Ok(var_map)
     }
 
-    pub fn insert(&mut self, line: String) -> bool {
-        let Some((key, val)) = parse_line(line) else {
-            return false;
-        };
+    pub fn handle(&mut self, line: String) -> HandleResult {
+        if let Some((key, val)) = parse_ins(line.as_str()) {
+            return if self.map.insert(key, val).is_none() {
+                HandleResult::Insertion
+            } else {
+                HandleResult::Update
+            }
+        }
 
-        self.map.insert(key, val);
+        if let Some(var_name) = parse_del(line.as_str()) {
+            return if self.map.remove(&var_name).is_none() {
+                HandleResult::RemovalFail
+            } else {
+                HandleResult::RemovalSuccess
+            }
+        }
 
-        true
+        HandleResult::GenericFail
     }
 
     fn populate_from_config(&mut self) -> io::Result<()> {
@@ -47,13 +57,8 @@ impl VarMap {
         };
 
         let reader = BufReader::new(file);
-
         for line in reader.lines() {
-            let Some((var_name, val)) = parse_line(line?) else {
-                continue;
-            };
-
-            self.map.insert(var_name, val);
+            self.handle(line?);
         }
 
         Ok(())
@@ -72,7 +77,15 @@ impl Drop for VarMap {
     }
 }
 
-fn parse_line(line: String) -> Option<(String, f64)> {
+pub enum HandleResult {
+    Insertion,
+    RemovalFail,
+    RemovalSuccess,
+    Update,
+    GenericFail,
+}
+
+fn parse_ins(line: &str) -> Option<(String, f64)> {
     if !line.starts_with("VAR ") {
         return None;
     }
@@ -103,6 +116,20 @@ fn parse_line(line: String) -> Option<(String, f64)> {
     }
 
     Some((name, acc / comp_div))
+}
+
+fn parse_del(line: &str) -> Option<String> {
+    if !line.starts_with("DEL ") {
+        return None;
+    }
+
+    let line: String = line.chars().skip(4).collect();
+    if line.contains(' ') || line.contains(':') {
+        return None;
+    }
+
+
+    Some(line)
 }
 
 fn config_path() -> &'static PathBuf {

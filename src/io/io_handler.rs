@@ -1,57 +1,74 @@
-mod normal_handler;
 mod function_handler;
+mod normal_handler;
 mod variable_handler;
 
 use core::fmt;
-use std::{error::Error, fmt::Display, io};
+use std::{
+    error::Error,
+    fmt::Display,
+    io::{self, stdout, Write},
+};
 
-use normal_handler::NormalHandler;
 use function_handler::FunctionHandler;
+use normal_handler::NormalHandler;
 use variable_handler::VariableHandler;
 
-use crate::{io::Key, terminal::Terminal};
+use crate::{io::Key, opts, terminal::Terminal};
 
 pub const ERR_COLOR: &str = "\x1b[41m";
+pub const SUCCESS_COLOR: &str = "\x1b[42m";
 pub const ERASE_FROM_CURSOR: &str = "\x1b[0J";
 pub const HIDE_CURSOR: &str = "\x1b[?25l";
 pub const HIGHLIGHT_COLOR: &str = "\x1b[92m";
+pub const HOME: &str = "\x1b[H";
 pub const RESET: &str = "\x1b[0m";
 pub const SHOW_CURSOR: &str = "\x1b[?25h";
 
+const MSG_FMT: &str = "\x1b[4m";
 
 pub struct IoHandler {
     mode: Mode,
-    msg: Option<String>,
     normal_handler: NormalHandler,
     func_handler: FunctionHandler,
     var_handler: VariableHandler,
 }
 
-
 impl IoHandler {
     pub fn new(bounds: &Terminal) -> Result<IoHandler, IoError> {
         Ok(IoHandler {
             mode: Mode::Normal,
-            msg: None,
             normal_handler: NormalHandler::new(bounds)?,
-            func_handler: FunctionHandler::new(),
-            var_handler: VariableHandler::new()?,
+            func_handler: FunctionHandler::new(bounds)?,
+            var_handler: VariableHandler::new(bounds)?,
         })
     }
 
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         let state = match self.mode {
-            Mode::Normal => self.normal_handler.handle(key, self.msg)?,
-            _ => todo!(),
-            /*
-            Mode::Function => self.func_handler.handle(key, self.msg)?,
-            Mode::Variable => self.var_handler.handle(key, self.msg)?,
-            */
+            Mode::Normal => self.normal_handler.handle(key)?,
+            Mode::FunctionDecl => self.func_handler.handle_decl(key)?,
+            Mode::FunctionSelect => self.func_handler.handle_select(key)?,
+            Mode::VariableDecl => self.var_handler.handle_decl(key)?,
+            Mode::VariableSelect => self.var_handler.handle_select(key)?,
         };
 
-        if let Continue(mode, msg) = state {
-            self.mode = mode;
-            self.msg = msg;
+        let State::Continue(mode, msg) = state else {
+            return Ok(state);
+        };
+
+        if self.mode != mode {
+            match mode {
+                Mode::Normal => self.normal_handler.render()?,
+                Mode::FunctionDecl => self.func_handler.render_decl()?,
+                Mode::FunctionSelect => self.func_handler.render_select()?,
+                Mode::VariableDecl => self.var_handler.render_decl()?,
+                Mode::VariableSelect => self.var_handler.render_select()?,
+            }
+        }
+
+        self.mode = mode;
+        if let Some(msg) = msg {
+            display_msg(msg)?;
         }
 
         Ok(state)
@@ -98,3 +115,16 @@ impl Display for IoError {
 
 impl Error for IoError {}
 
+fn display_msg(msg: String) -> Result<(), io::Error> {
+    if opts::DEBUG {
+        println!("{MSG_FMT}{msg}{RESET}");
+    } else {
+        print!(
+            "{HIDE_CURSOR}\x1b7{HOME}\x1b[2K{MSG_FMT}{msg}\x1b8{SHOW_CURSOR}{RESET}"
+        );
+    }
+
+    stdout().flush()?;
+
+    Ok(())
+}

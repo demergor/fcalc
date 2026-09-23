@@ -136,10 +136,6 @@ impl FoldExpr {
         self.cur_operand
     }
 
-    pub fn is_singleton(&self) -> bool {
-        self.operands.len() <= 1
-    }
-
     pub fn cur_operand_to_last(&mut self) {
         if self.cur_operand.is_none() {
             return;

@@ -30,7 +30,8 @@ impl VarMap {
     }
 
     pub fn handle(&mut self, line: String) -> HandleResult {
-        if let Some((key, val)) = parse_ins(line.as_str()) {
+        let line = line.trim();
+        if let Some((key, val)) = parse_ins(line) {
             return if self.map.insert(key, val).is_none() {
                 HandleResult::Insertion
             } else {
@@ -38,7 +39,7 @@ impl VarMap {
             }
         }
 
-        if let Some(var_name) = parse_del(line.as_str()) {
+        if let Some(var_name) = parse_del(line) {
             return if self.map.remove(&var_name).is_none() {
                 HandleResult::RemovalFail
             } else {

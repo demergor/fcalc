@@ -7,30 +7,26 @@ use crate::{
         Key, State, io_handler::{
             ERASE_FROM_CURSOR, ERR_COLOR, HOME, IoError, Mode, RESET, SUCCESS_COLOR,
         },
-    }, opts, terminal::Terminal, variables::{HandleResult, VarMap},
+    }, opts, variables::{HandleResult, VarMap},
 };
 
-const DECL_HINT: &str = "The \"VAR \" prefix declares a new variable, \
-    \"DEL \" deletes an existing one\x1b[0m\n";
+const DECL_HINT: &str = "\"VAR \" prefix: declare a new variable, \
+    \"DEL \": delete an existing one\x1b[0m\n";
 
 pub struct VariableHandler {
     cur_col: usize,
     var_map: VarMap,
     input_buf: Vec<char>,
-    term_width: u16,
-    term_height: u16,
 }
 
 impl VariableHandler {
-    pub fn new(bounds: &Terminal) -> Result<VariableHandler, IoError> {
+    pub fn new() -> Result<VariableHandler, IoError> {
         let var_map = VarMap::new()?;
 
         let mut var_handler = VariableHandler {
             cur_col: 0,
             var_map,
             input_buf: Vec::new(),
-            term_width: bounds.width,
-            term_height: bounds.height,
         };
         var_handler.reset_buf();
 
@@ -39,6 +35,7 @@ impl VariableHandler {
 
     pub fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
+            Key::Char('Q') => return Ok(State::ForceQuit),
             Key::Char('q') => {
                 self.reset_buf();
                 return Ok(State::Continue(
@@ -47,11 +44,14 @@ impl VariableHandler {
                 ));
             }
             Key::Char('h') => {
-                return Ok(State::Continue(Mode::Normal, Some(DECL_HINT.to_owned())));
+                return Ok(State::Continue(
+                        Mode::VariableDecl,
+                        Some(DECL_HINT.to_owned())
+                ));
             }
             Key::Enter => {
-                self.reset_buf();
                 let submission: String = self.input_buf.iter().collect();
+                self.reset_buf();
 
                 return match self.var_map.handle(submission) {
                     HandleResult::Insertion => Ok(State::Continue(
@@ -99,7 +99,7 @@ impl VariableHandler {
             Key::Char(ch) => {
                 self.input_buf.insert(self.cur_col, ch);
                 self.render_decl()?;
-                self.cursor_to(min(self.cur_col + 1, self.input_buf.len()));
+                self.cursor_to(min(self.cur_col + 1, self.input_buf.len()))?;
             }
             Key::Backspace => {
                 if self.cur_col == 0 || self.input_buf.is_empty() {
@@ -113,11 +113,11 @@ impl VariableHandler {
                 self.input_buf.remove(self.cur_col);
 
                 self.render_decl()?;
-                self.cursor_to(self.cur_col);
+                self.cursor_to(self.cur_col)?;
             }
             Key::ArrowRight => {
                 self.render_decl()?;
-                self.cursor_to(min(self.cur_col + 1, self.input_buf.len()));
+                self.cursor_to(min(self.cur_col + 1, self.input_buf.len()))?;
             }
             Key::ArrowLeft => {
                 self.render_decl()?;
@@ -125,12 +125,12 @@ impl VariableHandler {
                     0
                 } else {
                     self.cur_col - 1
-                });
+                })?;
             }
             _ => (),
         }
 
-        Ok(State::Continue(Mode::Normal, None))
+        Ok(State::Continue(Mode::VariableDecl, None))
     }
 
     pub fn render_decl(&mut self) -> Result<(), Box<dyn Error>> {

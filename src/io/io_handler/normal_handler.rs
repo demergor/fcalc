@@ -72,7 +72,7 @@ impl NormalHandler {
                 cur_expr.write_chars(cur_line)?;
 
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
             Key::Enter => {
                 if self.syntax_error()? {
@@ -96,9 +96,9 @@ impl NormalHandler {
                 }
 
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
-            Key::Char('q') => {
+            Key::Char('Q') | Key::Char('q') => {
                 return Ok(State::Quit(
                     self.fold_exprs
                         .first()
@@ -110,7 +110,7 @@ impl NormalHandler {
             Key::Char('c') => {
                 *self.cur_pair()?.0 = FoldExpr::default();
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
             Key::Char('C') => {
                 self.fold_exprs.clear();
@@ -120,7 +120,7 @@ impl NormalHandler {
                 self.lines = vec![Vec::new()];
 
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
             Key::Char('r') => {
                 if self.syntax_error()? {
@@ -134,7 +134,7 @@ impl NormalHandler {
                 cur_expr.reverse();
 
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
             Key::Char('e') => {
                 if self.syntax_error()? {
@@ -156,20 +156,23 @@ impl NormalHandler {
                 self.lines.push(Vec::new());
 
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
             Key::Char(ch) if let Ok(op) = Operation::try_from(ch) => {
                 let cur_col = self.cur_col;
                 let (cur_expr, cur_line) = self.cur_pair()?;
                 cur_line[0] = op.as_char();
 
-                if let Err(err) = cur_expr.reparse(cur_line, cur_col) {
+                if cur_expr.reparse(cur_line, cur_col).is_err() {
                     self.reeval()?;
-                    return Ok(State::Continue(Mode::Normal, Some(err.to_string())));
+                    return Ok(State::Continue(
+                            Mode::Normal,
+                            Some(format!("Wrong usage of operator '{ch}'"))
+                    ));
                 }
 
                 self.render()?;
-                self.reset_cursor_pos();
+                self.reset_cursor_pos()?;
             }
             Key::Char(ch) if ch == 'w' || ch == 'b' => {
                 let get_operand_idx = if ch == 'w' {
@@ -200,6 +203,7 @@ impl NormalHandler {
                     let cur_line = self.cur_pair()?.1.iter().collect::<String>();
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
+                    self.cursor_to(cur_col)?;
 
                     return Ok(State::Continue(Mode::Normal, None));
                 }
@@ -216,14 +220,16 @@ impl NormalHandler {
                     ));
                 }
 
+                self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
                 let cur_col = self.cur_col - 1;
                 self.cur_pair()?.1.remove(cur_col);
                 self.cur_col = cur_col;
 
-                if !self.syntax_error()? {
+                if self.syntax_error()? {
                     let cur_line = self.cur_pair()?.1.iter().collect::<String>();
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
+                    self.cursor_to(cur_col)?;
 
                     return Ok(State::Continue(Mode::Normal, None));
                 }
@@ -232,7 +238,7 @@ impl NormalHandler {
             }
             Key::ArrowRight => {
                 let cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());
-                self.cursor_to(cur_col);
+                self.cursor_to(cur_col)?;
 
                 return Ok(State::Continue(Mode::Normal, None));
             }
@@ -241,7 +247,7 @@ impl NormalHandler {
                     1
                 } else {
                     self.cur_col - 1
-                });
+                })?;
 
                 return Ok(State::Continue(Mode::Normal, None));
             }
@@ -420,7 +426,17 @@ impl NormalHandler {
     }
 
     fn reset_cursor_pos(&mut self) -> Result<(), Box<dyn Error>> {
-        self.cur_col = self.cur_col.clamp(0, self.cur_pair()?.1.len());
+        let (cur_expr, cur_line) = self.cur_pair()?;
+        if let Some(op_idx) = cur_expr.cur_operand() {
+            let (_, end_pos) = nth_operand_pos( 
+                cur_line,
+                op_idx,
+            ).expect("Can't find current operand in string representation!");
+            self.cur_col = end_pos;
+        } else {
+            self.cur_col = self.cur_col.clamp(0, self.cur_pair()?.1.len());
+        }
+
         print!("\x1b[{}G", self.cur_col + 1);
         stdout().flush()?;
 
@@ -466,7 +482,7 @@ impl Display for InternalStateError {
 impl Error for InternalStateError {}
 
 #[derive(Debug)]
-enum RenderError {
+pub enum RenderError {
     Fmt(fmt::Error),
     FoldExprResultError,
     Io(io::Error),

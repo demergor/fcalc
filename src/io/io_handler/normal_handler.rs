@@ -261,8 +261,9 @@ impl NormalHandler {
         self.flatten();
         self.ripple_update()?;
         let to_skip: usize = {
+            let width = self.term_width as usize;
+            let mut height = self.term_height as usize - 1;
             let mut idx = self.lines.len();
-            let mut height = self.term_height - 1;
 
             while idx > 0 && height > 0 {
                 idx -= 1;
@@ -270,7 +271,7 @@ impl NormalHandler {
                     panic!("Empty string representation of a fold expression!");
                 }
 
-                height -= (self.lines[idx].len() as u16 - 1) / self.term_width + 1;
+                height -= (self.lines[idx].len() - 1) / width + 1;
             }
 
             idx

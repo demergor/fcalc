@@ -11,7 +11,7 @@ use std::{
 static VAR_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 pub struct VarMap {
-    map: BTreeMap<String, f64>,
+    pub map: BTreeMap<String, f64>,
 }
 
 impl VarMap {
@@ -97,6 +97,10 @@ fn parse_ins(line: &str) -> Option<(String, f64)> {
     }
 
     let name: String = line.chars().take_while(|ch| *ch != ':').collect();
+    if name.is_empty() {
+        return None;
+    }
+
     let mut comp_div = 1.0;
     let mut is_float = false;
     let mut acc = 0.0;

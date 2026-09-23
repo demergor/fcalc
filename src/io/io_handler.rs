@@ -22,6 +22,7 @@ pub const HIDE_CURSOR: &str = "\x1b[?25l";
 pub const HIGHLIGHT_COLOR: &str = "\x1b[92m";
 pub const HOME: &str = "\x1b[H";
 pub const RESET: &str = "\x1b[0m";
+pub const RESET_COLORS: &str = "\x1b[39m\x1b[49m";
 pub const SHOW_CURSOR: &str = "\x1b[?25h";
 
 const MSG_FMT: &str = "\x1b[3m";
@@ -39,7 +40,7 @@ impl IoHandler {
             mode: Mode::Normal,
             normal_handler: NormalHandler::new(bounds)?,
             // func_handler: FunctionHandler::new(bounds)?,
-            var_handler: VariableHandler::new()?,
+            var_handler: VariableHandler::new(bounds)?,
         })
     }
 
@@ -49,7 +50,7 @@ impl IoHandler {
             Mode::FunctionDecl => todo!(), // self.func_handler.handle_decl(key)?,
             Mode::FunctionSelect => todo!(), // self.func_handler.handle_select(key)?,
             Mode::VariableDecl => self.var_handler.handle_decl(key)?,
-            Mode::VariableSelect => todo!(), // self.var_handler.handle_select(key)?,
+            Mode::VariableSelect => self.var_handler.handle_select(key)?,
         };
 
         if state == State::ForceQuit {
@@ -67,7 +68,7 @@ impl IoHandler {
                 Mode::FunctionDecl => todo!(), // self.func_handler.render_decl()?,
                 Mode::FunctionSelect => todo!(), //self.func_handler.render_select()?,
                 Mode::VariableDecl => self.var_handler.render_decl()?,
-                Mode::VariableSelect => todo!() // self.var_handler.render_select()?,
+                Mode::VariableSelect => self.var_handler.render_select()?,
             }
         }
 

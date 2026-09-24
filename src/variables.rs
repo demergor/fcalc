@@ -8,6 +8,8 @@ use std::{
     sync::OnceLock,
 };
 
+use crate::function;
+
 pub const INSERTION_PREFIX: &[char] = &['V', 'A', 'R', ' '];
 pub const DELETION_PREFIX: &[char] = &['D', 'E', 'L', ' '];
 
@@ -39,7 +41,7 @@ impl VarMap {
                 HandleResult::Insertion
             } else {
                 HandleResult::Update
-            }
+            };
         }
 
         if let Some(var_name) = parse_del(line) {
@@ -47,7 +49,7 @@ impl VarMap {
                 HandleResult::RemovalFail
             } else {
                 HandleResult::RemovalSuccess
-            }
+            };
         }
 
         HandleResult::GenericFail
@@ -95,7 +97,10 @@ fn parse_ins(line: &str) -> Option<(String, f64)> {
     }
 
     let line: String = line.chars().skip(4).collect();
-    if line.contains(' ') || line.chars().filter(|ch| *ch == ':').count() != 1 {
+    if line.contains(' ')
+        || line.contains(function::COEFF_DELIM)
+        || line.chars().filter(|ch| *ch == ':').count() != 1
+    {
         return None;
     }
 
@@ -135,7 +140,6 @@ fn parse_del(line: &str) -> Option<String> {
     if line.contains(' ') || line.contains(':') {
         return None;
     }
-
 
     Some(line)
 }

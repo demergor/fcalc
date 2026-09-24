@@ -1,4 +1,5 @@
 mod fold_expr;
+mod function;
 mod io;
 mod operation;
 mod opts;

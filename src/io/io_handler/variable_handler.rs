@@ -161,6 +161,7 @@ impl VariableHandler {
             Key::Enter => {
                 let input: String = self.input_buf.iter().collect();
                 let matches = self.match_vec(&input, self.term_width.into());
+                self.fresh = true;
 
                 if matches.is_empty() || self.cur_selection >= matches.len() {
                     return Ok(State::Continue(

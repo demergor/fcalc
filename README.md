@@ -1,5 +1,6 @@
 Work In Progress: 
-- also show variable matches in the declaration window 
+- show variable matches in the declaration window as well
+- implement smart cursor-locking when a render-cycle changes the underlying text buffer
 - centralize config location
 
 Planned features:

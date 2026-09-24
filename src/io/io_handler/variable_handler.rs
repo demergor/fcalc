@@ -1,24 +1,23 @@
 use std::{
     cmp::min,
     error::Error,
-    io::{stdout, BufWriter, Write},
+    io::{BufWriter, StdoutLock, Write, stdout},
 };
 
 use crate::{
     io::{
+        Key, State,
         io_handler::{
-            IoError, Mode, ERASE_FROM_CURSOR, ERR_COLOR, HIGHLIGHT_COLOR, HOME, RESET,
+            ERASE_FROM_CURSOR, ERR_COLOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET,
             RESET_COLORS, SUCCESS_COLOR,
         },
-        Key, State,
     },
     opts,
     terminal::Terminal,
-    variables::{HandleResult, VarMap, DELETION_PREFIX, INSERTION_PREFIX},
+    variables::{DELETION_PREFIX, HandleResult, INSERTION_PREFIX, VarMap},
 };
 
-const DECL_HINT: &str = "\"VAR \" prefix: declare a new variable, \
-    \"DEL \": delete an existing one\x1b[0m\n";
+const DECL_HINT: &str = "<V> = declare new variable, <D> = delete existing variable";
 
 pub struct VariableHandler {
     fresh: bool,
@@ -27,7 +26,7 @@ pub struct VariableHandler {
     input_buf: Vec<char>,
 
     cur_col: usize,
-    cur_selection: usize,
+    cur_selection: Option<usize>,
 
     term_width: u16,
     term_height: u16,
@@ -42,7 +41,7 @@ impl VariableHandler {
             var_map,
             input_buf: Vec::new(),
             cur_col: 0,
-            cur_selection: 0,
+            cur_selection: None,
             term_width: bounds.width,
             term_height: bounds.height,
         })
@@ -65,6 +64,37 @@ impl VariableHandler {
                 ));
             }
             Key::Enter => {
+                if let Some(mut selection) = self.cur_selection {
+                    let needle: String = self
+                        .input_buf
+                        .iter()
+                        .skip(INSERTION_PREFIX.len())
+                        .take_while(|&&ch| ch != ':')
+                        .collect();
+                    let matches = self.match_vec(&needle, self.term_width as usize);
+                    selection = selection.clamp(0, matches.len());
+
+                    if matches.is_empty() {
+                        self.render_decl()?;
+                        return Ok(State::Continue(Mode::VariableDecl, None));
+                    }
+
+                    self.input_buf.drain(INSERTION_PREFIX.len()..);
+                    self.input_buf.extend(matches[selection].0.chars());
+
+                    if self.input_buf.starts_with(INSERTION_PREFIX) {
+                        self.input_buf.push(':');
+                        self.input_buf
+                            .extend(matches[selection].1.to_string().chars());
+                    }
+
+                    self.cur_selection = None;
+                    self.render_decl()?;
+                    self.cursor_to(self.input_buf.len())?;
+
+                    return Ok(State::Continue(Mode::VariableDecl, None));
+                }
+
                 let submission: String = self.input_buf.iter().collect();
                 self.fresh = true;
 
@@ -111,19 +141,38 @@ impl VariableHandler {
                     )),
                 };
             }
-            Key::Char('v') => {
-                if self.input_buf.starts_with(INSERTION_PREFIX) {
-                    return Ok(State::Continue(Mode::Normal, None));
+            Key::Char('C') => {
+                self.input_buf.drain(4..);
+                self.cur_selection = None;
+                self.render_decl()?;
+                self.cursor_to(self.input_buf.len())?;
+            }
+            Key::Char(ch) if ch == 'V' || ch == 'D' => {
+                let prefix;
+                let other;
+
+                if ch == 'V' {
+                    prefix = INSERTION_PREFIX;
+                    other = DELETION_PREFIX;
+                } else {
+                    prefix = DELETION_PREFIX;
+                    other = INSERTION_PREFIX;
+                };
+
+                if self.input_buf.starts_with(prefix) {
+                    self.render_decl()?;
+                    return Ok(State::Continue(Mode::VariableDecl, None));
                 }
 
-                if self.input_buf.starts_with(DELETION_PREFIX) {
-                    self.input_buf[..INSERTION_PREFIX.len()]
-                        .copy_from_slice(INSERTION_PREFIX);
-                    return Ok(State::Continue(Mode::Normal, None));
+                if self.input_buf.starts_with(other) {
+                    self.input_buf[..prefix.len()].copy_from_slice(prefix);
+                    self.render_decl()?;
+
+                    return Ok(State::Continue(Mode::VariableDecl, None));
                 }
 
                 let old_buf_len = self.input_buf.len();
-                let mut buf: Vec<char> = INSERTION_PREFIX.to_vec();
+                let mut buf: Vec<char> = prefix.to_vec();
                 buf.extend(self.input_buf.iter().skip_while(|ch| ch.is_whitespace()));
                 self.input_buf = buf;
 
@@ -136,11 +185,13 @@ impl VariableHandler {
             }
             Key::Char(ch) => {
                 self.input_buf.insert(self.cur_col, ch);
+                self.cur_selection = None;
                 self.render_decl()?;
                 self.cursor_to(min(self.cur_col + 1, self.input_buf.len()))?;
             }
             Key::Backspace => {
-                if self.cur_col == 0 || self.input_buf.is_empty() {
+                assert_eq!(INSERTION_PREFIX.len(), DELETION_PREFIX.len());
+                if self.cur_col <= INSERTION_PREFIX.len() {
                     return Ok(State::Continue(
                         Mode::VariableDecl,
                         Some(String::from("Nothing to delete!")),
@@ -150,8 +201,24 @@ impl VariableHandler {
                 self.cur_col -= 1;
                 self.input_buf.remove(self.cur_col);
 
+                self.cur_selection = None;
                 self.render_decl()?;
                 self.cursor_to(self.cur_col)?;
+            }
+            Key::ArrowUp => {
+                self.cur_selection = match self.cur_selection {
+                    Some(selection) if selection > 0 => Some(selection - 1),
+                    Some(0) => None,
+                    _ => None,
+                };
+                self.render_decl()?;
+            }
+            Key::ArrowDown => {
+                self.cur_selection = match self.cur_selection {
+                    Some(selection) => Some(selection + 1),
+                    None => Some(0),
+                };
+                self.render_decl()?;
             }
             Key::ArrowRight => {
                 self.render_decl()?;
@@ -165,7 +232,6 @@ impl VariableHandler {
                     self.cur_col - 1
                 })?;
             }
-            _ => (),
         }
 
         Ok(State::Continue(Mode::VariableDecl, None))
@@ -186,7 +252,7 @@ impl VariableHandler {
                 let matches = self.match_vec(&input, self.term_width.into());
                 self.fresh = true;
 
-                if matches.is_empty() || self.cur_selection >= matches.len() {
+                if matches.is_empty() || self.cur_selection.unwrap() >= matches.len() {
                     return Ok(State::Continue(
                         Mode::Normal,
                         Some(String::from("No matching variable found!")),
@@ -194,15 +260,18 @@ impl VariableHandler {
                 }
 
                 return Ok(State::Continue(
-                    Mode::NormalCarry(matches[self.cur_selection].1),
-                    Some(format!("Inserted {}", matches[self.cur_selection].0)),
+                    Mode::NormalCarry(matches[self.cur_selection.unwrap()].1),
+                    Some(format!(
+                        "Inserted {}",
+                        matches[self.cur_selection.unwrap()].0
+                    )),
                 ));
             }
             Key::Char(ch) => {
                 self.input_buf.insert(self.cur_col, ch);
+                self.cur_selection = Some(0);
                 self.render_select()?;
                 self.cursor_to(min(self.cur_col + 1, self.input_buf.len()))?;
-                self.cur_selection = 0;
             }
             Key::Backspace => {
                 if self.cur_col == 0 || self.input_buf.is_empty() {
@@ -215,20 +284,20 @@ impl VariableHandler {
                 self.cur_col -= 1;
                 self.input_buf.remove(self.cur_col);
 
+                self.cur_selection = Some(0);
                 self.render_select()?;
                 self.cursor_to(self.cur_col)?;
-                self.cur_selection = 0;
             }
             Key::ArrowUp => {
-                self.cur_selection = if self.cur_selection == 0 {
-                    0
+                self.cur_selection = if self.cur_selection.unwrap() == 0 {
+                    Some(0usize)
                 } else {
-                    self.cur_selection - 1
+                    Some(self.cur_selection.unwrap() - 1)
                 };
                 self.render_select()?;
             }
             Key::ArrowDown => {
-                self.cur_selection += 1;
+                self.cur_selection = Some(self.cur_selection.unwrap() + 1);
                 self.render_select()?;
             }
             Key::ArrowRight => {
@@ -242,7 +311,6 @@ impl VariableHandler {
                     self.cur_col - 1
                 })?;
             }
-            _ => (),
         }
 
         Ok(State::Continue(Mode::VariableSelect, None))
@@ -253,17 +321,44 @@ impl VariableHandler {
             self.init_decl();
         }
 
+        let mut out = BufWriter::new(stdout().lock());
         if !opts::DEBUG {
-            print!("{HOME}{ERASE_FROM_CURSOR}");
+            write!(out, "{HOME}{ERASE_FROM_CURSOR}")?;
         }
 
-        println!(concat!(
-            "Enter your variable in this format: ",
-            "\x1b[32mpi\x1b[33m:\x1b[34m3.14\x1b[0m",
-        ));
+        if self.input_buf.starts_with(INSERTION_PREFIX) {
+            writeln!(
+                out,
+                "{}",
+                format!(
+                    "Accepted format: \
+                    \x1b[2m{}\x1b[0m\
+                    \x1b[32mstd_gravity\x1b[33m:\x1b[34m9.80665\x1b[0m",
+                    INSERTION_PREFIX.iter().collect::<String>(),
+                )
+            )?;
+        } else {
+            writeln!(
+                out,
+                "{}",
+                format!(
+                    "Accepted format: \
+                    \x1b[2m{}\x1b[0m\
+                    \x1b[32mstd_gravity\x1b[0m",
+                    DELETION_PREFIX.iter().collect::<String>(),
+                )
+            )?;
+        }
 
-        print!("{}", self.input_buf.iter().collect::<String>());
-        stdout().flush()?;
+        write!(out, "{}", self.input_buf.iter().collect::<String>())?;
+        let needle: String = self
+            .input_buf
+            .iter()
+            .skip(INSERTION_PREFIX.len())
+            .take_while(|ch| **ch != ':')
+            .collect();
+        self.render_matches(needle, &mut out)?;
+        out.flush()?;
 
         Ok(())
     }
@@ -278,15 +373,25 @@ impl VariableHandler {
             write!(out, "{HOME}{ERASE_FROM_CURSOR}")?;
         }
 
-        let width = self.term_width as usize;
         let needle: String = self.input_buf.iter().collect();
         write!(out, "Enter the variable name below:\n{needle}")?;
+        self.render_matches(needle, &mut out)?;
+        out.flush()?;
 
+        Ok(())
+    }
+
+    pub fn render_matches(
+        &mut self,
+        needle: String,
+        out: &mut BufWriter<StdoutLock>,
+    ) -> Result<(), Box<dyn Error>> {
         if self.term_height < 3 {
             out.flush()?;
             return Ok(());
         }
 
+        let width = self.term_width as usize;
         let replace: String = HIGHLIGHT_COLOR.to_owned() + &needle + RESET_COLORS;
         let matches: Vec<(String, f64, usize, usize)> = self
             .match_vec(&needle, width)
@@ -304,10 +409,17 @@ impl VariableHandler {
         }
 
         let mut rem_height = self.term_height as usize - 2;
-        self.cur_selection = min(self.cur_selection + 1, matches.len()) - 1;
+        self.cur_selection = match self.cur_selection {
+            Some(selection) => Some(min(selection + 1, matches.len()) - 1),
+            None => None,
+        };
 
-        let mut ceiling = matches[self.cur_selection].3;
         let mut first_idx = 0;
+        let mut ceiling = if let Some(selection) = self.cur_selection {
+            matches[selection].3
+        } else {
+            0
+        };
 
         while ceiling >= rem_height && first_idx < matches.len() {
             ceiling -= matches[first_idx].2;
@@ -321,11 +433,13 @@ impl VariableHandler {
             }
 
             writeln!(out)?;
-            if self.cur_selection == i {
+            if let Some(selection) = self.cur_selection
+                && selection == i
+            {
                 write!(out, "=> \x1b[1m")?;
             }
 
-            write!(out, "{} : {}\x1b[0m", matches[i].0, matches[i].1)?;
+            write!(out, "{} = {}\x1b[0m", matches[i].0, matches[i].1)?;
             rem_height -= matches[i].2;
         }
 
@@ -346,13 +460,14 @@ impl VariableHandler {
     fn init_decl(&mut self) {
         self.input_buf = vec!['V', 'A', 'R', ' '];
         self.cur_col = 4;
+        self.cur_selection = None;
         self.fresh = false;
     }
 
     fn init_select(&mut self) {
         self.input_buf.clear();
         self.cur_col = 0;
-        self.cur_selection = 0;
+        self.cur_selection = Some(0);
         self.fresh = false;
     }
 

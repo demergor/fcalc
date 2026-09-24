@@ -38,13 +38,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_parser = InputParser::new();
     let mut state = io_handler.update(Key::Char('='))?;
 
-    while let io::State::Continue(_, _) = state && !SIGINT.load(Ordering::Relaxed) {
+    while let io::State::Continue(_, _) = state
+        && !SIGINT.load(Ordering::Relaxed)
+    {
         input_parser.poll_key();
-        while let Some(key) = input_parser.pending_keys.pop_front() {
-            if let io::State::Quit(_) = state {
-                break; 
-            }
-
+        if let Some(key) = input_parser.pending_keys.pop_front() {
             state = io_handler.update(key)?;
         }
     }

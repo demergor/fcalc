@@ -42,6 +42,11 @@ impl InputParser {
         };
 
         if !ready {
+            if self.state == ParseState::Escape {
+                self.pending_keys.push_back(Key::Escape);
+                self.state = ParseState::Normal;
+            }
+
             return;
         }
 

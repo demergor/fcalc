@@ -8,6 +8,9 @@ use std::{
     sync::OnceLock,
 };
 
+pub const INSERTION_PREFIX: &[char] = &['V', 'A', 'R', ' '];
+pub const DELETION_PREFIX: &[char] = &['D', 'E', 'L', ' '];
+
 static VAR_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 pub struct VarMap {
@@ -87,7 +90,7 @@ pub enum HandleResult {
 }
 
 fn parse_ins(line: &str) -> Option<(String, f64)> {
-    if !line.starts_with("VAR ") {
+    if !line.starts_with(INSERTION_PREFIX) {
         return None;
     }
 
@@ -124,7 +127,7 @@ fn parse_ins(line: &str) -> Option<(String, f64)> {
 }
 
 fn parse_del(line: &str) -> Option<String> {
-    if !line.starts_with("DEL ") {
+    if !line.starts_with(DELETION_PREFIX) {
         return None;
     }
 

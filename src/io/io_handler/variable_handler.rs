@@ -14,7 +14,7 @@ use crate::{
     },
     opts,
     terminal::Terminal,
-    variables::{HandleResult, VarMap},
+    variables::{HandleResult, VarMap, DELETION_PREFIX, INSERTION_PREFIX},
 };
 
 const DECL_HINT: &str = "\"VAR \" prefix: declare a new variable, \
@@ -51,7 +51,7 @@ impl VariableHandler {
     pub fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
             Key::Char('Q') => return Ok(State::ForceQuit),
-            Key::Char('q') => {
+            Key::Char('q') | Key::Escape => {
                 self.fresh = true;
                 return Ok(State::Continue(
                     Mode::Normal,
@@ -111,6 +111,29 @@ impl VariableHandler {
                     )),
                 };
             }
+            Key::Char('v') => {
+                if self.input_buf.starts_with(INSERTION_PREFIX) {
+                    return Ok(State::Continue(Mode::Normal, None));
+                }
+
+                if self.input_buf.starts_with(DELETION_PREFIX) {
+                    self.input_buf[..INSERTION_PREFIX.len()]
+                        .copy_from_slice(INSERTION_PREFIX);
+                    return Ok(State::Continue(Mode::Normal, None));
+                }
+
+                let old_buf_len = self.input_buf.len();
+                let mut buf: Vec<char> = INSERTION_PREFIX.to_vec();
+                buf.extend(self.input_buf.iter().skip_while(|ch| ch.is_whitespace()));
+                self.input_buf = buf;
+
+                self.render_decl()?;
+                self.cursor_to(if self.input_buf.len() < old_buf_len {
+                    self.cur_col.clamp(0, self.input_buf.len())
+                } else {
+                    self.cur_col + self.input_buf.len() - old_buf_len
+                })?;
+            }
             Key::Char(ch) => {
                 self.input_buf.insert(self.cur_col, ch);
                 self.render_decl()?;
@@ -151,7 +174,7 @@ impl VariableHandler {
     pub fn handle_select(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
             Key::Char('Q') => return Ok(State::ForceQuit),
-            Key::Char('q') => {
+            Key::Char('q') | Key::Escape => {
                 self.fresh = true;
                 return Ok(State::Continue(
                     Mode::Normal,
@@ -256,20 +279,20 @@ impl VariableHandler {
         }
 
         let width = self.term_width as usize;
-        let search: String = self.input_buf.iter().collect();
-        write!(out, "Enter the variable name below:\n{search}")?;
+        let needle: String = self.input_buf.iter().collect();
+        write!(out, "Enter the variable name below:\n{needle}")?;
 
         if self.term_height < 3 {
             out.flush()?;
             return Ok(());
         }
 
-        let replace: String = HIGHLIGHT_COLOR.to_owned() + &search + RESET_COLORS;
+        let replace: String = HIGHLIGHT_COLOR.to_owned() + &needle + RESET_COLORS;
         let matches: Vec<(String, f64, usize, usize)> = self
-            .match_vec(&search, width)
+            .match_vec(&needle, width)
             .iter()
             .map(|(name, val, height, acc_height)| {
-                (name.replace(&search, &replace), *val, *height, *acc_height)
+                (name.replace(&needle, &replace), *val, *height, *acc_height)
             })
             .collect();
 
@@ -335,7 +358,7 @@ impl VariableHandler {
 
     fn match_vec(
         &self,
-        search: &str,
+        needle: &str,
         width: usize,
     ) -> Vec<(String, f64, usize, usize)> {
         let mut acc = 0;
@@ -343,7 +366,7 @@ impl VariableHandler {
         self.var_map
             .map
             .iter()
-            .filter(|(key, _)| key.contains(search))
+            .filter(|(key, _)| key.contains(needle))
             .map(|(key, val)| {
                 let height = ((key.chars().count() + val.to_string().chars().count())
                     - 1)

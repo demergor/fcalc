@@ -1,9 +1,10 @@
 use std::{error::Error, io};
 
-use crate::{function::Expression, terminal::Terminal};
+use crate::{function::{FuncMap, Function}, terminal::Terminal};
 
 pub struct FunctionHandler {
-    exprs: Vec<Expression>,
+    func_map: FuncMap,
+    funcs: Vec<Function>,
     lines: Vec<Vec<char>>,
     cur_col: usize,
 
@@ -13,11 +14,14 @@ pub struct FunctionHandler {
 
 impl FunctionHandler {
     pub fn new(bounds: &Terminal) -> Result<FunctionHandler, Box<dyn Error>> {
-        let root_expr = Expression::default();
+        todo!()
+            /*
+        let root_expr = Function::default();
         let mut buf = Vec::new();
         root_expr.write_chars(&mut buf)?;
 
         Ok(FunctionHandler {
+
             exprs: vec![root_expr],
             lines: vec![buf],
             cur_col: 0,
@@ -25,11 +29,12 @@ impl FunctionHandler {
             term_width: bounds.width,
             term_height: bounds.height,
         })
+            */
     }
 
 
 
     pub fn render(&mut self) -> Result<(), Box<dyn Error>> {
-        todo!();
+        todo!()
     }
 }

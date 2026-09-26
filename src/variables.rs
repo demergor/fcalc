@@ -1,19 +1,14 @@
 use std::{
     collections::BTreeMap,
-    env,
     f64::consts::{E, EULER_GAMMA, PI},
     fs::File,
-    io::{self, BufRead, BufReader, ErrorKind, Write},
-    path::PathBuf,
-    sync::OnceLock,
+    io::{self, BufRead, BufReader, Write},
 };
 
-use crate::function;
+use crate::functions;
 
 pub const INSERTION_PREFIX: &[char] = &['V', 'A', 'R', ' '];
 pub const DELETION_PREFIX: &[char] = &['D', 'E', 'L', ' '];
-
-static VAR_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 pub struct VarMap {
     pub map: BTreeMap<String, f64>,
@@ -46,9 +41,9 @@ impl VarMap {
 
         if let Some(var_name) = parse_del(line) {
             return if self.map.remove(&var_name).is_none() {
-                HandleResult::RemovalFail
+                HandleResult::DeletionFail
             } else {
-                HandleResult::RemovalSuccess
+                HandleResult::DeletionSuccess
             };
         }
 
@@ -56,9 +51,9 @@ impl VarMap {
     }
 
     fn populate_from_config(&mut self) -> io::Result<()> {
-        let file = match File::open(config_path()) {
+        let file = match File::open(crate::var_config_path()) {
             Ok(file) => file,
-            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(err) => return Err(err),
         };
 
@@ -73,7 +68,7 @@ impl VarMap {
 
 impl Drop for VarMap {
     fn drop(&mut self) {
-        let Ok(mut file) = File::create(config_path()) else {
+        let Ok(mut file) = File::create(crate::var_config_path()) else {
             panic!("Couldn't open file to write variable config to!");
         };
 
@@ -85,8 +80,8 @@ impl Drop for VarMap {
 
 pub enum HandleResult {
     Insertion,
-    RemovalFail,
-    RemovalSuccess,
+    DeletionFail,
+    DeletionSuccess,
     Update,
     GenericFail,
 }
@@ -98,7 +93,7 @@ fn parse_ins(line: &str) -> Option<(String, f64)> {
 
     let line: String = line.chars().skip(4).collect();
     if line.contains(' ')
-        || line.contains(function::COEFF_DELIM)
+        || line.contains(functions::COEFF_DELIM)
         || line.chars().filter(|ch| *ch == ':').count() != 1
     {
         return None;
@@ -142,9 +137,4 @@ fn parse_del(line: &str) -> Option<String> {
     }
 
     Some(line)
-}
-
-fn config_path() -> &'static PathBuf {
-    VAR_CONFIG_PATH
-        .get_or_init(|| env::home_dir().unwrap().join(".config/fcalc/variables.txt"))
 }

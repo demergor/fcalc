@@ -1,6 +1,6 @@
-use std::{error::Error, io};
+use std::{error::Error};
 
-use crate::{function::{FuncMap, Function}, terminal::Terminal};
+use crate::{functions::{FuncMap, Function}, terminal::Terminal};
 
 pub struct FunctionHandler {
     func_map: FuncMap,
@@ -14,22 +14,19 @@ pub struct FunctionHandler {
 
 impl FunctionHandler {
     pub fn new(bounds: &Terminal) -> Result<FunctionHandler, Box<dyn Error>> {
-        todo!()
-            /*
-        let root_expr = Function::default();
+        let root_func = Function::default();
         let mut buf = Vec::new();
-        root_expr.write_chars(&mut buf)?;
+        root_func.write_chars(&mut buf)?;
 
         Ok(FunctionHandler {
-
-            exprs: vec![root_expr],
+            func_map: FuncMap::new(),
+            funcs: vec![root_func],
             lines: vec![buf],
             cur_col: 0,
 
             term_width: bounds.width,
             term_height: bounds.height,
         })
-            */
     }
 
 

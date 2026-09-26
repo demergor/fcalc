@@ -107,7 +107,7 @@ impl VariableHandler {
                             {RESET}"
                         )),
                     )),
-                    HandleResult::RemovalSuccess => Ok(State::Continue(
+                    HandleResult::DeletionSuccess => Ok(State::Continue(
                         Mode::Normal,
                         Some(format!(
                             "{SUCCESS_COLOR}\
@@ -115,7 +115,7 @@ impl VariableHandler {
                             {RESET}"
                         )),
                     )),
-                    HandleResult::RemovalFail => Ok(State::Continue(
+                    HandleResult::DeletionFail => Ok(State::Continue(
                         Mode::Normal,
                         Some(format!(
                             "{ERR_COLOR}\

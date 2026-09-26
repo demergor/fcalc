@@ -1,5 +1,5 @@
 mod fold_expr;
-mod function;
+mod functions;
 mod io;
 mod operation;
 mod opts;
@@ -7,10 +7,7 @@ mod terminal;
 mod variables;
 
 use std::{
-    env,
-    error::Error,
-    fs,
-    sync::atomic::{AtomicBool, Ordering},
+    env, error::Error, fs, path::PathBuf, sync::{OnceLock, atomic::{AtomicBool, Ordering}},
 };
 
 use crate::{
@@ -19,6 +16,9 @@ use crate::{
 };
 
 static SIGINT: AtomicBool = AtomicBool::new(false);
+static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static VAR_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static FUNC_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 extern "C" fn handle_sigint(_: libc::c_int) {
     SIGINT.store(true, Ordering::Relaxed);
@@ -55,4 +55,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+pub fn config_path() -> &'static PathBuf {
+    CONFIG_PATH.get_or_init(|| env::home_dir().unwrap().join(".config/fcalc/"))
+}
+
+pub fn var_config_path() -> &'static PathBuf {
+    VAR_CONFIG_PATH.get_or_init(|| config_path().join("variables.txt"))
+}
+
+pub fn func_config_path() -> &'static PathBuf {
+    FUNC_CONFIG_PATH.get_or_init(|| config_path().join("functions.txt"))
 }

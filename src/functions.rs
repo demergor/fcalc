@@ -1,12 +1,67 @@
 use core::fmt;
-use std::{collections::BTreeMap, error::Error, fmt::Write};
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    fmt::Write,
+    fs::File,
+    io::{self, BufRead, BufReader},
+};
 
 use crate::operation::{self, Operation, OperationExecutionError};
 
 pub const COEFF_DELIM: char = '\'';
+pub const INSERTION_PREFIX: &[char] = &['F', 'U', 'N'];
+pub const DELETION_PREFIX: &[char] = &['D', 'E', 'L'];
 
 pub struct FuncMap {
     pub map: BTreeMap<String, Function>,
+}
+
+impl FuncMap {
+    pub fn new() -> Result<FuncMap, io::Error> {
+        let mut func_map = FuncMap {
+            map: BTreeMap::new(),
+        };
+
+        func_map.populate_from_config()?;
+
+        Ok(func_map)
+    }
+
+    pub fn handle(&mut self, line: String) -> HandleResult {
+        if let Some((func_name, func)) = parse_ins(&line) {
+            return if self.map.insert(func_name, func).is_none() {
+                HandleResult::Insertion
+            } else {
+                HandleResult::Update
+            };
+        }
+
+        if let Some(func_name) = parse_del(&line) {
+            return if self.map.remove(&func_name).is_some() {
+                HandleResult::DeletionSuccess
+            } else {
+                HandleResult::DeletionFail
+            };
+        }
+
+        HandleResult::GenericFail
+    }
+
+    fn populate_from_config(&mut self) -> io::Result<()> {
+        let file = match File::open(crate::func_config_path()) {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err),
+        };
+
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            self.handle(line?);
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Function {
@@ -28,8 +83,16 @@ impl Function {
         )?)
     }
 
-    pub fn reparse(&mut self, slice: &[char]) -> Result<(), FunctionError> {
-        let (params, operation, operands) = parse(slice)?;
+    pub fn reparse(
+        &mut self,
+        slice: &[char],
+        cursor_pos: usize,
+    ) -> Result<(), FunctionError> {
+        let (params, operation, operands, cur_operand) = parse_func(slice, cursor_pos)?;
+        self.params = params;
+        self.operation = operation;
+        self.operands = operands;
+        self.cur_operand = cur_operand;
 
         Ok(())
     }
@@ -53,6 +116,14 @@ impl Function {
         }
 
         Ok(())
+    }
+
+    pub fn cur_operand_to_last(&mut self) {
+        if self.cur_operand.is_none() {
+            return;
+        }
+
+        self.cur_operand = Some(self.operands.len() - 1);
     }
 
     fn substitute(&mut self, args: Vec<f64>) -> Result<(), FunctionError> {
@@ -99,7 +170,7 @@ struct Term {
 }
 
 #[derive(Debug)]
-enum FunctionError {
+pub enum FunctionError {
     ArgumentMismatch,
     OperationError(OperationExecutionError),
     ParseError(usize, char),
@@ -129,9 +200,18 @@ impl fmt::Write for CharWriter<'_> {
     }
 }
 
-fn parse(
+fn parse_func(
     slice: &[char],
-) -> Result<(Vec<(String, Option<f64>)>, Operation, Vec<Term>), FunctionError> {
+    cursor_pos: usize,
+) -> Result<
+    (
+        Vec<(String, Option<f64>)>,
+        Operation,
+        Vec<Term>,
+        Option<usize>,
+    ),
+    FunctionError,
+> {
     let start = slice.iter().position(|ch| !ch.is_whitespace());
     let end = slice.iter().rposition(|ch| !ch.is_whitespace());
 
@@ -150,6 +230,7 @@ fn parse(
 
     let mut params = Vec::<String>::new();
     let mut operands = Vec::<Term>::new();
+    let mut cur_operand = None;
 
     let mut cur_var = String::from("");
     let mut cur_num = 0.0;
@@ -220,7 +301,18 @@ fn parse(
             }
             &ch => return Err(FunctionError::ParseError(idx, ch)),
         }
+
+        if cursor_pos == idx {
+            cur_operand = Some(operands.len());
+        }
     }
+
+    cur_operand = match cur_operand {
+        _ if operands.is_empty() => None,
+        Some(idx) if idx == 0 => Some(0),
+        Some(idx) => Some(idx - 1),
+        None => Some(operands.len() - 1),
+    };
 
     if !in_num && !already_delim {
         params.sort();
@@ -230,6 +322,7 @@ fn parse(
             params.iter().cloned().map(|name| (name, None)).collect(),
             operation,
             operands,
+            cur_operand,
         ));
     }
 
@@ -258,7 +351,55 @@ fn parse(
         params.iter().cloned().map(|name| (name, None)).collect(),
         operation,
         operands,
+        cur_operand,
     ))
+}
+
+fn parse_ins(line: &str) -> Option<(String, Function)> {
+    if !line.starts_with(INSERTION_PREFIX) {
+        return None;
+    }
+
+    let func_name: String = line
+        .chars()
+        .skip(INSERTION_PREFIX.len())
+        .take_while(|&ch| ch != ':')
+        .collect();
+
+    let func_def: Vec<char> = line
+        .chars()
+        .skip(INSERTION_PREFIX.len())
+        .skip_while(|&ch| ch != ':')
+        .skip(1)
+        .collect();
+
+    let mut func = Function::default();
+    if func.reparse(&func_def, 0).is_err() {
+        return None;
+    }
+
+    Some((func_name, func))
+}
+
+fn parse_del(line: &str) -> Option<String> {
+    if !line.starts_with(DELETION_PREFIX) {
+        return None;
+    }
+
+    let line: String = line.chars().skip(DELETION_PREFIX.len()).collect();
+    if line.contains(' ') || line.contains(':') || line.contains(COEFF_DELIM) {
+        return None;
+    }
+
+    Some(line)
+}
+
+pub enum HandleResult {
+    Insertion,
+    DeletionFail,
+    DeletionSuccess,
+    Update,
+    GenericFail,
 }
 
 #[cfg(test)]
@@ -267,7 +408,24 @@ mod tests {
 
     #[test]
     fn test_empty_parse() {
-        assert!(parse(&Vec::new()).is_err());
+        assert!(parse_func(&Vec::new(), 0).is_err());
+    }
+
+    #[test]
+    fn test_only_operation_parse() {
+        let test_operation = Operation::Addition;
+        let test_vec = vec![test_operation.as_char()];
+
+        let expected_params: Vec<(String, Option<f64>)> = Vec::new();
+        let expected_operation = test_operation;
+        let expected_operands: Vec<Term> = Vec::new();
+        let expected_cur_operand = None;
+
+        let actual = parse_func(&test_vec, 0).expect("Parsing failed unexpectedly!");
+        assert_eq!(expected_params, actual.0);
+        assert_eq!(expected_operation, actual.1);
+        assert_eq!(expected_operands, actual.2);
+        assert_eq!(expected_cur_operand, actual.3);
     }
 
     #[test]
@@ -296,16 +454,18 @@ mod tests {
             coeff: x,
         })
         .collect();
+        let expected_cur_operand = Some(3);
 
         let test_vec: Vec<char> =
             "/ 5.' 1'x.i 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -6666.1'x.i"
                 .chars()
                 .collect();
 
-        let actual = parse(&test_vec).expect("Parsing failed unexpectedly!");
+        let actual = parse_func(&test_vec, 25).expect("Parsing failed unexpectedly!");
 
         assert_eq!(expected_params, actual.0, "Parameter mismatch!");
         assert_eq!(expected_operation, actual.1, "Operation mismatch!");
         assert_eq!(expected_operands, actual.2, "Operands mismatch!");
+        assert_eq!(expected_cur_operand, actual.3, "Cur operand mismatch!");
     }
 }

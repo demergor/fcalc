@@ -279,11 +279,11 @@ fn parse(
     let mut already_negative = false;
     let mut comp_div = 1.0;
     let mut first_digit = true;
-    let mut pos = 0;
+    let mut idx = 0;
     let mut cur_operand = None;
 
     while let Some(ch) = it.next() {
-        pos += 1;
+        idx += 1;
         match ch {
             ch if ch.is_whitespace() => {
                 if !first_digit {
@@ -310,10 +310,10 @@ fn parse(
                 first_digit = false;
                 comp_div *= if already_float { 10.0 } else { 1.0 };
             }
-            ch => return Err(ParseFoldExprError::InvalidCharacter(*ch, pos).into()),
+            ch => return Err(ParseFoldExprError::InvalidCharacter(*ch, idx).into()),
         }
 
-        if pos == cursor_pos && ch.is_ascii_digit() {
+        if idx == cursor_pos {
             cur_operand = Some(operands.len());
         }
     }
@@ -336,9 +336,12 @@ fn parse(
         operands.retain(|x| *x != 0.0);
     }
 
-    if let Some(op_idx) = cur_operand {
-        cur_operand = Some(op_idx.clamp(0, operands.len() - 1));
-    }
+    cur_operand = match cur_operand {
+        _ if operands.is_empty() => None,
+        Some(idx) if idx == 0 => Some(0),
+        Some(idx) => Some(idx - 1),
+        None => Some(operands.len() - 1),
+    };
 
     Ok((operation, operands, cur_operand))
 }
@@ -351,5 +354,15 @@ impl fmt::Write for CharWriter<'_> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.buf.extend(s.chars());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_parse() {
+        assert!(parse(&Vec::new(), 0).is_err());
     }
 }

@@ -477,7 +477,6 @@ impl VariableHandler {
         width: usize,
     ) -> Vec<(String, f64, usize, usize)> {
         let mut acc = 0;
-
         self.var_map
             .map
             .iter()
@@ -488,7 +487,7 @@ impl VariableHandler {
                     / width
                     + 1;
                 acc += height;
-                (String::from(key), *val, height, acc)
+                (key.clone(), *val, height, acc)
             })
             .collect()
     }

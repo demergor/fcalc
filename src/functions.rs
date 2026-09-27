@@ -1,8 +1,7 @@
 use core::fmt;
 use std::{
     collections::BTreeMap,
-    error::Error,
-    fmt::Write,
+    fmt::Display,
     fs::File,
     io::{self, BufRead, BufReader},
 };
@@ -64,6 +63,7 @@ impl FuncMap {
     }
 }
 
+#[derive(Clone, PartialEq)]
 pub struct Function {
     params: Vec<(String, Option<f64>)>,
     operation: Operation,
@@ -97,25 +97,16 @@ impl Function {
         Ok(())
     }
 
-    pub fn write_chars(&self, buf: &mut Vec<char>) -> Result<(), Box<dyn Error>> {
+    pub fn write_chars(&self, buf: &mut Vec<char>) -> fmt::Result {
         buf.clear();
         let mut writer = CharWriter { buf };
-
-        write!(writer, "{} ", self.operation.as_char())?;
-        for term in &self.operands {
-            write!(
-                writer,
-                "{}{COEFF_DELIM}{} ",
-                term.coeff,
-                if let Some(name) = term.var_name.clone() {
-                    name
-                } else {
-                    String::from("")
-                }
-            )?;
-        }
+        self.write_fmt(&mut writer)?;
 
         Ok(())
+    }
+
+    pub fn param_names(&self) -> Vec<String> {
+        self.params.iter().map(|(name, _)| name.clone()).collect()
     }
 
     pub fn cur_operand_to_last(&mut self) {
@@ -136,16 +127,28 @@ impl Function {
         }
 
         for term in self.operands.iter_mut() {
-            let Some(var_name) = &term.var_name else {
-                continue;
-            };
+            for var_name in &term.vars {
+                let Some(pos) = self.params.iter().position(|(key, _)| key == var_name)
+                else {
+                    panic!("Function's parameters contain unknown variable names!");
+                };
 
-            let Some(pos) = self.params.iter().position(|(key, _)| key == var_name)
-            else {
-                panic!("Function's parameters contain unknown variable names!");
-            };
+                term.coeff *= self.params[pos].1.unwrap();
+            }
+        }
 
-            term.coeff *= self.params[pos].1.unwrap();
+        Ok(())
+    }
+
+    fn write_fmt<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
+        write!(writer, "{} ", self.operation.as_char())?;
+        for term in &self.operands {
+            write!(writer, "{}", term.coeff)?;
+            for var_name in &term.vars {
+                write!(writer, "{COEFF_DELIM}{}", var_name,)?;
+            }
+
+            write!(writer, " ")?;
         }
 
         Ok(())
@@ -163,10 +166,24 @@ impl Default for Function {
     }
 }
 
+impl Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.write_fmt(f)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct Term {
-    pub var_name: Option<String>,
+    pub vars: Vec<String>,
     pub coeff: f64,
+}
+
+pub enum HandleResult {
+    Insertion,
+    DeletionFail,
+    DeletionSuccess,
+    Update,
+    GenericFail,
 }
 
 #[derive(Debug)]
@@ -194,7 +211,7 @@ struct CharWriter<'a> {
 }
 
 impl fmt::Write for CharWriter<'_> {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
         self.buf.extend(s.chars());
         Ok(())
     }
@@ -233,6 +250,7 @@ fn parse_func(
     let mut cur_operand = None;
 
     let mut cur_var = String::from("");
+    let mut cur_term_vars = Vec::new();
     let mut cur_num = 0.0;
 
     let mut in_num = false;
@@ -240,6 +258,7 @@ fn parse_func(
     let mut already_delim = false;
     let mut negative = false;
     let mut comp_div = 1.0;
+    let mut cursor_on_operand = false;
 
     for ch in it {
         idx += 1;
@@ -251,21 +270,17 @@ fn parse_func(
 
                 if already_delim && !cur_var.is_empty() {
                     params.push(cur_var.clone());
+                    cur_term_vars.push(cur_var.clone());
                 }
-
-                let var_name = if cur_var.is_empty() {
-                    None
-                } else {
-                    Some(cur_var.clone())
-                };
 
                 cur_num /= comp_div;
                 operands.push(Term {
-                    var_name,
+                    vars: cur_term_vars.clone(),
                     coeff: if negative { -cur_num } else { cur_num },
                 });
 
                 cur_var.clear();
+                cur_term_vars.clear();
                 cur_num = 0.0;
 
                 in_num = false;
@@ -276,7 +291,8 @@ fn parse_func(
             }
             &COEFF_DELIM => {
                 if already_delim {
-                    return Err(FunctionError::ParseError(idx, COEFF_DELIM));
+                    cur_term_vars.push(cur_var.clone());
+                    cur_var.clear();
                 }
 
                 if !in_num {
@@ -286,13 +302,7 @@ fn parse_func(
                 already_delim = true;
             }
             ch if already_delim => cur_var.push(*ch),
-            '.' => {
-                if already_float {
-                    return Err(FunctionError::ParseError(idx, '.'));
-                }
-
-                already_float = true;
-            }
+            '.' if !already_float => already_float = true,
             '-' if !negative => negative = true,
             ch if let Some(digit) = ch.to_digit(10) => {
                 cur_num = cur_num * 10.0 + digit as f64;
@@ -304,13 +314,14 @@ fn parse_func(
 
         if cursor_pos == idx {
             cur_operand = Some(operands.len());
+            cursor_on_operand = in_num || already_delim;
         }
     }
 
     cur_operand = match cur_operand {
         _ if operands.is_empty() => None,
         Some(idx) if idx == 0 => Some(0),
-        Some(idx) => Some(idx - 1),
+        Some(idx) => Some(idx - if cursor_on_operand { 0 } else { 1 }),
         None => Some(operands.len() - 1),
     };
 
@@ -327,23 +338,19 @@ fn parse_func(
     }
 
     if !cur_var.is_empty() {
+        assert!(already_delim);
         params.push(cur_var.clone());
+        cur_term_vars.push(cur_var);
     }
 
     params.sort();
     params.dedup();
 
-    let var_name = if cur_var.is_empty() {
-        None
-    } else {
-        Some(cur_var)
-    };
-
     cur_num /= comp_div;
     cur_num = if negative { -cur_num } else { cur_num };
 
     operands.push(Term {
-        var_name,
+        vars: cur_term_vars.clone(),
         coeff: cur_num,
     });
 
@@ -394,14 +401,6 @@ fn parse_del(line: &str) -> Option<String> {
     Some(line)
 }
 
-pub enum HandleResult {
-    Insertion,
-    DeletionFail,
-    DeletionSuccess,
-    Update,
-    GenericFail,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,39 +428,51 @@ mod tests {
     }
 
     #[test]
+    fn test_default_function_chars() {
+        let mut actual = Vec::new();
+        Function::default()
+            .write_chars(&mut actual)
+            .expect("Writing chars failed unexpectedly!");
+
+        assert!(actual.len() == 2);
+        assert!(Operation::try_from(actual[0]).is_ok());
+        assert!(actual[1].is_whitespace());
+    }
+
+    #[test]
     fn test_valid_parse() {
         let expected_params: Vec<(String, Option<f64>)> =
-            vec!["!n", "...", "0", "va-l", "var1", "x.i", "z"]
+            vec!["!n", "...", "0", "va-l", "var1", "x", "x.i", "z"]
                 .iter()
                 .map(|&s| (String::from(s), None))
                 .collect();
         let expected_operation = Operation::Division;
         let expected_operands: Vec<Term> = vec![
-            (None, 5.0),
-            (Some(String::from("x.i")), 1.0),
-            (Some(String::from("!n")), 2.1),
-            (Some(String::from("var1")), 3.0),
-            (Some(String::from("z")), 0.0),
-            (Some(String::from("0")), 39.0),
-            (Some(String::from("...")), -69.67),
-            (Some(String::from("va-l")), -1521.0),
-            (Some(String::from("x.i")), -6666.1),
+            (Vec::new(), 5.0),
+            (vec![String::from("x.i"), String::from("x")], 1.0),
+            (vec![String::from("!n")], 2.1),
+            (vec![String::from("var1")], 3.0),
+            (vec![String::from("z")], 0.0),
+            (vec![String::from("0")], 39.0),
+            (vec![String::from("...")], -69.67),
+            (vec![String::from("va-l")], -1521.0),
+            (vec![String::from("x.i")], -6666.1),
         ]
         .iter()
         .cloned()
-        .map(|(var_name, x)| Term {
-            var_name: var_name,
+        .map(|(vars, x)| Term {
+            vars: vars,
             coeff: x,
         })
         .collect();
         let expected_cur_operand = Some(3);
 
         let test_vec: Vec<char> =
-            "/ 5.' 1'x.i 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -6666.1'x.i"
+            "/ 5.' 1'x.i'x 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -6666.1'x.i"
                 .chars()
                 .collect();
 
-        let actual = parse_func(&test_vec, 25).expect("Parsing failed unexpectedly!");
+        let actual = parse_func(&test_vec, 27).expect("Parsing failed unexpectedly!");
 
         assert_eq!(expected_params, actual.0, "Parameter mismatch!");
         assert_eq!(expected_operation, actual.1, "Operation mismatch!");

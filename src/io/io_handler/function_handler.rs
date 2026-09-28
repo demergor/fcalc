@@ -170,15 +170,16 @@ impl FunctionHandler {
             return Err(InternalStateError::OutOfSync);
         }
 
-        let mut func_it = self.funcs.iter_mut().rev();
-        let mut line_it = self.lines.iter_mut().rev();
-
-        let mut cur_func = func_it.next().ok_or(InternalStateError::NoFunction)?;
-        let mut cur_line = line_it.next().ok_or(InternalStateError::NoFunction)?;
-
-        // TODO: Implement
-        // cur_func.reduce();
+        let mut it = self.funcs.iter_mut().rev().zip(self.lines.iter_mut().rev());
+        let (mut cur_func, mut cur_line) = it.next().ok_or(InternalStateError::NoFunction)?;
         cur_func.write_chars(&mut cur_line)?;
+
+        while let Some((next_func, next_line)) = it.next() {
+            // TODO: Implement `Function::change_operands`
+            next_func.change_operands(cur_func);
+            next_func.write_chars(next_line);
+            cur_func = next_func;
+        }
 
         Ok(())
     }

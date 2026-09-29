@@ -175,9 +175,9 @@ impl FunctionHandler {
         cur_func.write_chars(&mut cur_line)?;
 
         while let Some((next_func, next_line)) = it.next() {
-            // TODO: Implement `Function::change_operands`
-            next_func.change_operands(cur_func);
-            next_func.write_chars(next_line);
+            // TODO: Implement `Function::change_operands` and finish
+            // next_func.change_operands(cur_func);
+            next_func.write_chars(next_line)?;
             cur_func = next_func;
         }
 

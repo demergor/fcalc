@@ -1,9 +1,6 @@
 use core::fmt;
 use std::{
-    collections::BTreeMap,
-    fmt::Display,
-    fs::File,
-    io::{self, BufRead, BufReader},
+    collections::BTreeMap, fmt::Display, fs::File, io::{self, BufRead, BufReader}, ops
 };
 
 use crate::operation::{self, Operation, OperationExecutionError};
@@ -68,7 +65,7 @@ pub struct Function {
     params: Vec<(String, Option<f64>)>,
     operation: Operation,
     operands: Vec<Term>,
-    cur_operand: Option<usize>,
+    cur_operand: ops::Range<usize>,
 }
 
 impl Function {
@@ -110,11 +107,11 @@ impl Function {
     }
 
     pub fn cur_operand_to_last(&mut self) {
-        if self.cur_operand.is_none() {
+        if self.cur_operand.is_empty() {
             return;
         }
 
-        self.cur_operand = Some(self.operands.len() - 1);
+        self.cur_operand = self.operands.len() - 1..self.operands.len();
     }
 
     fn substitute(&mut self, args: Vec<f64>) -> Result<(), FunctionError> {
@@ -161,7 +158,7 @@ impl Default for Function {
             params: Vec::new(),
             operation: Operation::Addition,
             operands: Vec::new(),
-            cur_operand: None,
+            cur_operand: 0..0,
         }
     }
 }
@@ -225,7 +222,7 @@ fn parse_func(
         Vec<(String, Option<f64>)>,
         Operation,
         Vec<Term>,
-        Option<usize>,
+        ops::Range<usize>,
     ),
     FunctionError,
 > {
@@ -247,7 +244,7 @@ fn parse_func(
 
     let mut params = Vec::<String>::new();
     let mut operands = Vec::<Term>::new();
-    let mut cur_operand = None;
+    let mut cur_operand = 0..0;
 
     let mut cur_var = String::from("");
     let mut cur_term_vars = Vec::new();
@@ -313,16 +310,22 @@ fn parse_func(
         }
 
         if cursor_pos == idx {
-            cur_operand = Some(operands.len());
+            cur_operand = operands.len()..operands.len() + 1;
             cursor_on_operand = in_num || already_delim;
         }
     }
 
     cur_operand = match cur_operand {
-        _ if operands.is_empty() => None,
-        Some(idx) if idx == 0 => Some(0),
-        Some(idx) => Some(idx - if cursor_on_operand { 0 } else { 1 }),
-        None => Some(operands.len() - 1),
+        _ if operands.is_empty() => 0..0,
+        range if range == (0..1) => 0..1,
+        range if range.is_empty() => operands.len() - 1..operands.len(),
+        range => {
+            if cursor_on_operand {
+                range
+            } else {
+                range.start - 1..range.end - 1
+            }
+        }
     };
 
     if !in_num && !already_delim {
@@ -418,7 +421,7 @@ mod tests {
         let expected_params: Vec<(String, Option<f64>)> = Vec::new();
         let expected_operation = test_operation;
         let expected_operands: Vec<Term> = Vec::new();
-        let expected_cur_operand = None;
+        let expected_cur_operand = 0..0;
 
         let actual = parse_func(&test_vec, 0).expect("Parsing failed unexpectedly!");
         assert_eq!(expected_params, actual.0);
@@ -465,7 +468,7 @@ mod tests {
             coeff: x,
         })
         .collect();
-        let expected_cur_operand = Some(3);
+        let expected_cur_operand = 3..4;
 
         let test_vec: Vec<char> =
             "/ 5.' 1'x.i'x 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -6666.1'x.i"

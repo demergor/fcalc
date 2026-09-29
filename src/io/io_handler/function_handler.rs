@@ -1,16 +1,13 @@
 use core::{error, fmt};
 use std::{
-    cmp,
-    error::Error,
-    fmt::Display,
-    io::{BufWriter, StdoutLock, Write, stdout},
+    cmp, error::Error, fmt::Display, io::{BufWriter, StdoutLock, Write, stdout}, ops,
 };
 
 use crate::{
-    functions::{self, FuncMap, Function},
-    io::io_handler::{ERASE_FROM_CURSOR, HIGHLIGHT_COLOR, HOME, RESET_COLORS},
-    opts,
-    terminal::Terminal,
+    functions::{self, FuncMap, Function}, io::io_handler::{
+        ERASE_FROM_CURSOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, RESET_COLORS,
+        SHOW_CURSOR,
+    }, operation::Operation, opts, terminal::Terminal,
 };
 
 pub struct FunctionHandler {
@@ -56,19 +53,57 @@ impl FunctionHandler {
 
         let mut out = BufWriter::new(stdout().lock());
         if !opts::DEBUG {
-            write!(out, "{HOME}{ERASE_FROM_CURSOR}")?;
+            write!(out, "{HIDE_CURSOR}{HOME}{ERASE_FROM_CURSOR}")?;
         }
 
         let func_name = self.func_name_buf.iter().collect();
         if self.name_finished {
             write!(out, "Enter the function name below:\n{func_name}")?;
-        } else {
-            let param_list: String = self.cur_pair()?.0.param_names().join(", ");
-            let cur_line: String = self.cur_pair()?.1.iter().collect();
-            write!(out, "Define {func_name}({param_list}) below:\n{cur_line}")?;
+            self.render_matches(func_name, &mut out)?;
+            out.flush()?;
+
+            return Ok(());
         }
 
-        self.render_matches(func_name, &mut out)?;
+        let param_list: String = self.cur_pair()?.0.param_names().join(", ");
+        let cur_line: String = self.cur_pair()?.1.iter().collect();
+        write!(out, "Define {func_name}({param_list}) below:\n{cur_line}")?;
+
+        let width = self.term_width as usize;
+        let mut rem_height = self.term_height as usize
+            - (param_list.chars().count() + width - 1) / width
+            + 1;
+        let to_skip: usize = {
+            let mut idx = self.lines.len();
+            while idx > 0 && rem_height > 0 {
+                idx -= 1;
+                rem_height -= (self.lines[idx].len() + width - 1) / width;
+            }
+
+            idx
+        };
+
+        let func_it = self.funcs.iter().skip(to_skip);
+        let line_it = self.lines.iter().skip(to_skip);
+        let mut it = func_it.zip(line_it).peekable();
+        let mut first = true;
+
+        while let Some((func, line)) = it.next() {
+            let cur_op_range = func.cur_operands();
+            if cur_op_range.is_empty() {
+                let func_str: String = line.clone().iter().collect();
+                write!(out, "{}{}", if first { "" } else { "\r\n" }, func_str)?;
+                first = false;
+                continue;
+            };
+
+            let mut line_cp = line.clone();
+            // TODO: Continue implementation from here
+            // let start_pos = operands_range(slice, idx_range);
+        }
+
+        write!(out, "{SHOW_CURSOR}")?;
+        out.flush()?;
 
         Ok(())
     }
@@ -171,12 +206,12 @@ impl FunctionHandler {
         }
 
         let mut it = self.funcs.iter_mut().rev().zip(self.lines.iter_mut().rev());
-        let (mut cur_func, mut cur_line) = it.next().ok_or(InternalStateError::NoFunction)?;
+        let (mut cur_func, mut cur_line) =
+            it.next().ok_or(InternalStateError::NoFunction)?;
         cur_func.write_chars(&mut cur_line)?;
 
         while let Some((next_func, next_line)) = it.next() {
-            // TODO: Implement `Function::change_operands` and finish
-            // next_func.change_operands(cur_func);
+            next_func.change_operands(cur_func);
             next_func.write_chars(next_line)?;
             cur_func = next_func;
         }
@@ -186,16 +221,13 @@ impl FunctionHandler {
 
     fn flatten(&mut self) {
         let len = self.funcs.len();
-        while len >= 3 {
-            if self.funcs[len - 1] != self.funcs[len - 2]
-                || self.funcs[len - 1] != self.funcs[len - 3]
-            {
-                return;
-            }
+        if len >= 3
+            && self.funcs[len - 1] == self.funcs[len - 2]
+            && self.funcs[len - 1] == self.funcs[len - 3]
+        {
+            self.funcs.pop();
+            self.lines.pop();
         }
-
-        self.funcs.pop();
-        self.lines.pop();
     }
 
     fn match_vec(
@@ -277,3 +309,42 @@ impl Display for InternalStateError {
 }
 
 impl error::Error for InternalStateError {}
+
+// TODO: Rewrite this to handle variable names, not only signed numbers
+fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<usize> {
+    let mut cur_op_idx = 0;
+    let mut in_operand = false;
+    let mut negative = false;
+    let mut range = 0..0;
+
+    for (mut slice_idx, ch) in slice.iter().skip(1).enumerate() {
+        slice_idx += 1;
+        match ch {
+            ch if ch.is_whitespace() => in_operand = false,
+            ch if *ch == Operation::Subtraction.as_char() => {
+                cur_op_idx += 1;
+                negative = true;
+            }
+            ch if ch.is_ascii_digit() && in_operand == false => {
+                if !negative {
+                    cur_op_idx += 1;
+                }
+
+                in_operand = true;
+                negative = false;
+            }
+            _ => (),
+        }
+        if range.is_empty() && cur_op_idx == idx_range.start {
+            range = slice_idx..slice_idx + 1;
+        }
+
+        if cur_op_idx == idx_range.end - 1 && !in_operand {
+            range.end = slice_idx;
+            return range;
+        }
+    }
+
+    range.end = slice.len();
+    range
+}

@@ -3,17 +3,17 @@ use std::{
     cmp::{max, min},
     error::Error,
     fmt::Display,
-    io::{self, stdout, BufWriter, Write},
+    io::{self, BufWriter, Write, stdout},
 };
 
 use crate::{
     fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError},
     io::{
-        io_handler::{
-            IoError, Mode, ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR,
-            RESET, SHOW_CURSOR,
-        },
         Key, State,
+        io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError,
+            Mode, RESET, SHOW_CURSOR,
+        },
     },
     operation::{Operation, OperationExecutionError},
     opts,
@@ -50,10 +50,7 @@ impl NormalHandler {
         })
     }
 
-    pub fn handle(
-        &mut self,
-        key: Key,
-    ) -> Result<State, Box<dyn Error>> {
+    pub fn handle(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         match key {
             Key::Char('=') => {
                 if self.syntax_error()? {
@@ -166,8 +163,8 @@ impl NormalHandler {
                 if cur_expr.reparse(cur_line, cur_col).is_err() {
                     self.reeval()?;
                     return Ok(State::Continue(
-                            Mode::Normal,
-                            Some(format!("Wrong usage of operator '{ch}'"))
+                        Mode::Normal,
+                        Some(format!("Wrong usage of operator '{ch}'")),
                     ));
                 }
 
@@ -279,7 +276,7 @@ impl NormalHandler {
 
         let mut out = BufWriter::new(std::io::stdout().lock());
         if !opts::DEBUG {
-            write!(out, "\x1b[H{HIDE_CURSOR}{ERASE_FROM_CURSOR}")?;
+            write!(out, "{HIDE_CURSOR}{HOME}{ERASE_FROM_CURSOR}")?;
         } else {
             writeln!(out)?;
         }
@@ -343,10 +340,8 @@ impl NormalHandler {
     pub fn reset_cursor_pos(&mut self) -> Result<(), Box<dyn Error>> {
         let (cur_expr, cur_line) = self.cur_pair()?;
         if let Some(op_idx) = cur_expr.cur_operand() {
-            let (_, end_pos) = nth_operand_pos( 
-                cur_line,
-                op_idx,
-            ).expect("Can't find current operand in string representation!");
+            let (_, end_pos) = nth_operand_pos(cur_line, op_idx)
+                .expect("Can't find current operand in string representation!");
             self.cur_col = end_pos;
         } else {
             self.cur_col = self.cur_col.clamp(0, self.cur_pair()?.1.len());
@@ -360,14 +355,11 @@ impl NormalHandler {
 
     fn flatten(&mut self) {
         // One level of dupe-nesting allowed; might come in handy in certain situations
-        while self.fold_exprs.len() >= 3 {
-            let len = self.fold_exprs.len();
-            if self.fold_exprs[len - 1] != self.fold_exprs[len - 2]
-                || self.fold_exprs[len - 1] != self.fold_exprs[len - 3]
-            {
-                return;
-            }
-
+        let len = self.fold_exprs.len();
+        if len >= 3
+            && self.fold_exprs[len - 1] == self.fold_exprs[len - 2]
+            && self.fold_exprs[len - 1] == self.fold_exprs[len - 3]
+        {
             self.fold_exprs.pop();
             self.lines.pop();
         }
@@ -540,7 +532,7 @@ fn nth_operand_pos(slice: &[char], n: usize) -> Option<(usize, usize)> {
     let mut negative = false;
     let mut start = None;
 
-    for (slice_idx, ch) in slice.iter().enumerate() {
+    for (slice_idx, ch) in slice.iter().skip(1).enumerate() {
         match ch {
             ch if ch.is_whitespace() => in_operand = false,
             ch if *ch == Operation::Subtraction.as_char() => negative = true,

@@ -1,6 +1,10 @@
 use core::fmt;
 use std::{
-    collections::BTreeMap, fmt::Display, fs::File, io::{self, BufRead, BufReader}, ops
+    collections::BTreeMap,
+    fmt::Display,
+    fs::File,
+    io::{self, BufRead, BufReader},
+    ops,
 };
 
 use crate::operation::{self, Operation, OperationExecutionError};
@@ -65,7 +69,7 @@ pub struct Function {
     params: Vec<(String, Option<f64>)>,
     operation: Operation,
     operands: Vec<Term>,
-    cur_operand: ops::Range<usize>,
+    cur_operands: ops::Range<usize>,
 }
 
 impl Function {
@@ -89,7 +93,7 @@ impl Function {
         self.params = params;
         self.operation = operation;
         self.operands = operands;
-        self.cur_operand = cur_operand;
+        self.cur_operands = cur_operand;
 
         Ok(())
     }
@@ -106,12 +110,26 @@ impl Function {
         self.params.iter().map(|(name, _)| name.clone()).collect()
     }
 
+    pub fn cur_operands(&self) -> ops::Range<usize> {
+        self.cur_operands.clone()
+    }
+
     pub fn cur_operand_to_last(&mut self) {
-        if self.cur_operand.is_empty() {
+        if self.cur_operands.is_empty() {
             return;
         }
 
-        self.cur_operand = self.operands.len() - 1..self.operands.len();
+        self.cur_operands = self.operands.len() - 1..self.operands.len();
+    }
+
+    pub fn change_operands(&mut self, other: &Function) {
+        self.cur_operands =
+            self.cur_operands.start..(self.cur_operands.start + other.operands.len());
+        self.operands.splice(self.cur_operands.clone(), other.operands.clone());
+
+        self.params.extend(other.params.clone());
+        self.params.sort_by(|a, b| a.0.cmp(&b.0));
+        self.params.dedup();
     }
 
     fn substitute(&mut self, args: Vec<f64>) -> Result<(), FunctionError> {
@@ -158,7 +176,7 @@ impl Default for Function {
             params: Vec::new(),
             operation: Operation::Addition,
             operands: Vec::new(),
-            cur_operand: 0..0,
+            cur_operands: 0..0,
         }
     }
 }
@@ -170,7 +188,7 @@ impl Display for Function {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Term {
+pub struct Term {
     pub vars: Vec<String>,
     pub coeff: f64,
 }

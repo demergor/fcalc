@@ -477,7 +477,7 @@ mod tests {
             (vec![String::from("0")], 39.0),
             (vec![String::from("...")], -69.67),
             (vec![String::from("va-l")], -1521.0),
-            (vec![String::from("x.i")], -6666.1),
+            (vec![String::from("x.i")], -1.0),
         ]
         .iter()
         .cloned()
@@ -489,7 +489,7 @@ mod tests {
         let expected_cur_operand = 3..4;
 
         let test_vec: Vec<char> =
-            "/ 5.' 1'x.i'x 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -6666.1'x.i"
+            "/ 5.' 1'x.i'x 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -'x.i"
                 .chars()
                 .collect();
 

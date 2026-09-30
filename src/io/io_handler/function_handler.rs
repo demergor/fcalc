@@ -8,14 +8,9 @@ use std::{
 };
 
 use crate::{
-    functions::{self, FuncMap, Function},
-    io::io_handler::{
-        ERASE_FROM_CURSOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, RESET_COLORS,
-        SHOW_CURSOR,
-    },
-    operation::Operation,
-    opts,
-    terminal::Terminal,
+    functions::{self, FuncMap, Function}, io::{State, io_handler::{
+        ERASE_FROM_CURSOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, Mode, RESET, RESET_COLORS, SHOW_CURSOR,
+    }}, operation::Operation, opts, terminal::Terminal,
 };
 
 pub struct FunctionHandler {
@@ -51,6 +46,11 @@ impl FunctionHandler {
         })
     }
 
+    pub fn handle_decl(&mut self) -> Result<State, Box<dyn Error>> {
+        // TODO: Implement
+        Ok(State::Continue(Mode::FunctionDecl, None))
+    }
+
     pub fn render_decl(&mut self) -> Result<(), Box<dyn Error>> {
         if self.fresh {
             self.init_decl()?;
@@ -68,6 +68,7 @@ impl FunctionHandler {
         if self.name_finished {
             write!(out, "Enter the function name below:\n{func_name}")?;
             self.render_matches(func_name, &mut out)?;
+            write!(out, "{}{SHOW_CURSOR}", self.cur_col + 1)?;
             out.flush()?;
 
             return Ok(());
@@ -105,12 +106,25 @@ impl FunctionHandler {
                 continue;
             };
 
-            let mut line_cp = line.clone();
-            // TODO: Continue implementation from here
-            // let start_pos = operands_range(slice, idx_range);
+            let mut line_cp = line.clone().to_vec();
+            let highlight_range = operands_range(&line_cp, func.cur_operands());
+
+            if !highlight_range.is_empty() {
+                line_cp.splice(highlight_range.end..highlight_range.end, RESET.chars());
+                line_cp.splice(
+                    highlight_range.start..highlight_range.start,
+                    HIGHLIGHT_COLOR.chars(),
+                );
+            }
+
+            let func_str: String = line_cp.iter().collect();
+            write!(out, "{}{}", if first { "" } else { "\r\n" }, func_str)?;
+            first = false;
         }
 
-        write!(out, "{SHOW_CURSOR}")?;
+        writeln!(out)?;
+        self.render_matches(func_name, &mut out)?;
+        write!(out, "{}{SHOW_CURSOR}", self.cur_col + 1)?;
         out.flush()?;
 
         Ok(())
@@ -320,12 +334,18 @@ impl error::Error for InternalStateError {}
 
 // TODO: Test this
 fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<usize> {
+    if idx_range.is_empty() {
+        return idx_range;
+    }
+
     let mut cur_op_idx = 0;
     let mut in_operand = false;
     let mut range = 0..0;
 
     for (mut slice_idx, ch) in slice.iter().skip(1).enumerate() {
         slice_idx += 1;
+        let previously_in_operand = in_operand;
+
         match ch {
             ch if ch.is_whitespace() => in_operand = false,
             _ if in_operand => (),
@@ -333,16 +353,20 @@ fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<us
                 || ch == functions::COEFF_DELIM
                 || ch == Operation::Subtraction.as_char() =>
             {
-                cur_op_idx += 1
+                in_operand = true
             }
             _ => unreachable!(),
         }
 
-        if range.is_empty() && cur_op_idx == idx_range.start {
+        if !previously_in_operand && in_operand {
+            cur_op_idx += 1;
+        }
+
+        if range.is_empty() && in_operand && cur_op_idx - 1 == idx_range.start {
             range = slice_idx..slice_idx + 1;
         }
 
-        if cur_op_idx == idx_range.end {
+        if !in_operand && cur_op_idx == idx_range.end {
             range.end = slice_idx;
             return range;
         }
@@ -350,4 +374,34 @@ fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<us
 
     range.end = slice.len();
     range
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_operands_range() {
+        let mut test_func = Function::default();
+        let test_input: Vec<char> =
+            "/ 1'x.i'x 2.1'!n 3'var1 0'z 39'0 -69.67'... -1521'va-l -6666.1'x.i "
+                .chars()
+                .collect();
+        test_func
+            .reparse(&test_input, 0)
+            .expect("(Re-)parsing failed unexpectedly!");
+
+        let mut buf = Vec::new();
+        test_func
+            .write_chars(&mut buf)
+            .expect("Writing chars failed unexpectedly!");
+
+        assert_eq!(test_input[1..], buf[1..]);
+
+        let actual = operands_range(&buf, 2..8);
+        let expected_start = 17;
+        let expected_end = test_input.len() - 1;
+
+        assert_eq!(expected_start..expected_end, actual);
+    }
 }

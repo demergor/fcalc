@@ -1,13 +1,21 @@
 use core::{error, fmt};
 use std::{
-    cmp, error::Error, fmt::Display, io::{BufWriter, StdoutLock, Write, stdout}, ops,
+    cmp,
+    error::Error,
+    fmt::Display,
+    io::{BufWriter, StdoutLock, Write, stdout},
+    ops,
 };
 
 use crate::{
-    functions::{self, FuncMap, Function}, io::io_handler::{
+    functions::{self, FuncMap, Function},
+    io::io_handler::{
         ERASE_FROM_CURSOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, RESET_COLORS,
         SHOW_CURSOR,
-    }, operation::Operation, opts, terminal::Terminal,
+    },
+    operation::Operation,
+    opts,
+    terminal::Terminal,
 };
 
 pub struct FunctionHandler {
@@ -310,36 +318,31 @@ impl Display for InternalStateError {
 
 impl error::Error for InternalStateError {}
 
-// TODO: Rewrite this to handle variable names, not only signed numbers
+// TODO: Test this
 fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<usize> {
     let mut cur_op_idx = 0;
     let mut in_operand = false;
-    let mut negative = false;
     let mut range = 0..0;
 
     for (mut slice_idx, ch) in slice.iter().skip(1).enumerate() {
         slice_idx += 1;
         match ch {
             ch if ch.is_whitespace() => in_operand = false,
-            ch if *ch == Operation::Subtraction.as_char() => {
-                cur_op_idx += 1;
-                negative = true;
+            _ if in_operand => (),
+            &ch if ch.is_ascii_digit()
+                || ch == functions::COEFF_DELIM
+                || ch == Operation::Subtraction.as_char() =>
+            {
+                cur_op_idx += 1
             }
-            ch if ch.is_ascii_digit() && in_operand == false => {
-                if !negative {
-                    cur_op_idx += 1;
-                }
-
-                in_operand = true;
-                negative = false;
-            }
-            _ => (),
+            _ => unreachable!(),
         }
+
         if range.is_empty() && cur_op_idx == idx_range.start {
             range = slice_idx..slice_idx + 1;
         }
 
-        if cur_op_idx == idx_range.end - 1 && !in_operand {
+        if cur_op_idx == idx_range.end {
             range.end = slice_idx;
             return range;
         }

@@ -1,17 +1,30 @@
 use core::{error, fmt};
 use std::{
-    cmp,
+    cmp::{self, max, min},
     error::Error,
     fmt::Display,
-    io::{BufWriter, StdoutLock, Write, stdout},
+    io::{self, BufWriter, StdoutLock, Write, stdout},
     ops,
 };
 
 use crate::{
-    functions::{self, FuncMap, Function}, io::{State, io_handler::{
-        ERASE_FROM_CURSOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, Mode, RESET, RESET_COLORS, SHOW_CURSOR,
-    }}, operation::Operation, opts, terminal::Terminal,
+    functions::{
+        self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError,
+        HandleResult, INSERTION_PREFIX,
+    },
+    io::{
+        Key, State,
+        io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, Mode,
+            RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
+        },
+    },
+    operation::Operation,
+    opts,
+    terminal::Terminal,
 };
+
+const DECL_HINT: &str = "<F> = declare a new function, <D> = delete existing function";
 
 pub struct FunctionHandler {
     fresh: bool,
@@ -46,8 +59,327 @@ impl FunctionHandler {
         })
     }
 
-    pub fn handle_decl(&mut self) -> Result<State, Box<dyn Error>> {
-        // TODO: Implement
+    pub fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+        match key {
+            Key::Char('Q') => {
+                self.fresh = true;
+                return Ok(State::Continue(
+                    Mode::Normal,
+                    Some(String::from("Cancelled function declaration")),
+                ));
+            }
+            Key::Escape => {
+                if self.name_finished {
+                    self.name_finished = false;
+                    self.render_decl()?;
+                    self.reset_cursor_pos()?;
+                } else {
+                    self.fresh = true;
+                    return Ok(State::Continue(
+                        Mode::FunctionDecl,
+                        Some(String::from("Cancelled function declaration")),
+                    ));
+                }
+            }
+            Key::Char('H') => {
+                if !self.name_finished {
+                    return Ok(State::Continue(
+                        Mode::FunctionDecl,
+                        Some(DECL_HINT.to_owned()),
+                    ));
+                }
+
+                return Ok(State::Continue(
+                    Mode::FunctionDecl,
+                    Some(String::from(
+                        "Define your formula using the 'normal' fold expression syntax",
+                    )),
+                ));
+            }
+            Key::Enter => {
+                if let Some(mut selection) = self.cur_selection {
+                    let needle: String = self
+                        .func_name_buf
+                        .iter()
+                        .skip(INSERTION_PREFIX.len())
+                        .take_while(|&&ch| ch != ':')
+                        .collect();
+                    let matches = self.match_vec(&needle, self.term_width as usize)?;
+                    selection = selection.clamp(0, matches.len());
+
+                    if matches.is_empty() {
+                        self.render_decl()?;
+                        return Ok(State::Continue(Mode::FunctionDecl, None));
+                    }
+
+                    self.func_name_buf.drain(INSERTION_PREFIX.len()..);
+                    self.func_name_buf.extend(matches[selection].0.chars());
+
+                    if self.func_name_buf.starts_with(INSERTION_PREFIX) {
+                        self.name_finished = true;
+
+                        self.funcs.clear();
+                        self.funcs.push(matches[selection].1.clone());
+                        self.lines.drain(1..);
+                        self.funcs[0].write_chars(&mut self.lines[0])?;
+
+                        self.render_decl()?;
+                        self.reset_cursor_pos()?;
+                    }
+                }
+
+                let mut submission: String = self.func_name_buf.iter().collect();
+                if submission.starts_with(DELETION_PREFIX) {
+                    self.fresh = true;
+                    return match self.func_map.handle(submission) {
+                        HandleResult::DeletionSuccess => Ok(State::Continue(
+                            Mode::Normal,
+                            Some(format!(
+                                "{SUCCESS_COLOR}\
+                                Function deletion successful!\
+                                {RESET}"
+                            )),
+                        )),
+                        HandleResult::DeletionFail => Ok(State::Continue(
+                            Mode::Normal,
+                            Some(format!(
+                                "{ERR_COLOR}\
+                                Function doesn't exist!\
+                                {RESET}"
+                            )),
+                        )),
+                        HandleResult::GenericFail => Ok(State::Continue(
+                            Mode::Normal,
+                            Some(format!(
+                                "{ERR_COLOR}\
+                                Malformed input!\
+                                {RESET}"
+                            )),
+                        )),
+                        _ => unreachable!(),
+                    };
+                }
+
+                if !self.name_finished {
+                    self.name_finished = true;
+
+                    self.funcs.clear();
+                    self.lines.clear();
+
+                    self.funcs.push(Function::default());
+                    let buf = self.lines.push_mut(Vec::new());
+                    self.funcs[0].write_chars(buf)?;
+
+                    self.render_decl()?;
+                    self.reset_cursor_pos()?;
+
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                }
+
+                if self.syntax_error()? {
+                    return Ok(State::Continue(
+                        Mode::FunctionDecl,
+                        Some(SYNTAX_ERR_MSG.to_owned()),
+                    ));
+                }
+
+                if self.funcs.len() < 2 {
+                    let (cur_func, cur_line) = self.cur_pair()?;
+                    cur_func.write_chars(cur_line)?;
+                    submission.push(':');
+                    submission.extend(cur_line.iter());
+
+                    return match self.func_map.handle(submission) {
+                        HandleResult::Insertion => Ok(State::Continue(
+                            Mode::Normal,
+                            Some(String::from("Function declaration successful!")),
+                        )),
+                        HandleResult::Update => Ok(State::Continue(
+                            Mode::Normal,
+                            Some(String::from("Function update successful!")),
+                        )),
+                        HandleResult::GenericFail => Ok(State::Continue(
+                            Mode::Normal,
+                            Some(String::from("Malformed input!")),
+                        )),
+                        _ => unreachable!(),
+                    };
+                }
+
+                let mut child_func =
+                    self.funcs.pop().ok_or(InternalStateError::NoFunction)?;
+                self.lines.pop();
+                child_func.reduce();
+
+                let (parent_func, parent_line) = self.cur_pair()?;
+                parent_func.change_operands(&child_func);
+                parent_func.write_chars(parent_line)?;
+
+                self.render_decl()?;
+                self.reset_cursor_pos()?;
+            }
+            Key::Char('C') => {
+                if self.name_finished {
+                    self.funcs.clear();
+                    self.lines.clear();
+
+                    self.funcs.push(Function::default());
+                    self.lines.push(Vec::new());
+
+                    self.render_decl()?;
+                    self.reset_cursor_pos()?;
+                } else {
+                    self.func_name_buf.drain(INSERTION_PREFIX.len()..);
+                    self.render_decl()?;
+                    self.reset_cursor_pos()?;
+                }
+            }
+            Key::Char('R') if self.name_finished => {
+                if self.syntax_error()? {
+                    return Ok(State::Continue(
+                        Mode::FunctionDecl,
+                        Some(SYNTAX_ERR_MSG.to_owned()),
+                    ));
+                }
+
+                let cur_func = self.cur_pair()?.0;
+                cur_func.reverse();
+
+                self.render_decl()?;
+                self.reset_cursor_pos()?;
+            }
+            Key::Char('E') if self.name_finished => {
+                if self.syntax_error()? {
+                    return Ok(State::Continue(
+                        Mode::Normal,
+                        Some(SYNTAX_ERR_MSG.to_owned()),
+                    ));
+                }
+
+                let cur_func = self.cur_pair()?.0;
+                let Some(new_func) = cur_func.new_from_cur_operands() else {
+                    return Ok(State::Continue(
+                        Mode::Normal,
+                        Some(SYNTAX_ERR_MSG.to_owned()),
+                    ));
+                };
+
+                self.funcs.push(new_func);
+                self.lines.push(Vec::new());
+
+                self.render_decl()?;
+                self.reset_cursor_pos()?;
+            }
+            Key::Char(ch)
+                if let Ok(op) = Operation::try_from(ch)
+                    && self.name_finished =>
+            {
+                let cur_col = self.cur_col;
+                let (cur_func, cur_line) = self.cur_pair()?;
+                cur_line[0] = op.as_char();
+
+                if cur_func.reparse(cur_line, cur_col).is_err() {
+                    self.reeval()?;
+                    return Ok(State::Continue(
+                        Mode::FunctionDecl,
+                        Some(format!("Wrong usage of operator '{ch}'")),
+                    ));
+                }
+
+                self.render_decl()?;
+                self.reset_cursor_pos()?;
+            }
+            Key::Char(ch) if self.name_finished && ch == 'W' || ch == 'B' => {
+                let get_operand_range = if ch == 'W' {
+                    Function::next_operands
+                } else {
+                    Function::previous_operands
+                };
+
+                let (cur_func, cur_line) = self.cur_pair()?;
+                let op_range = get_operand_range(cur_func);
+
+                if !op_range.is_empty() {
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                };
+
+                let op_range = operands_range(cur_line, op_range);
+                if op_range.is_empty() {
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                }
+
+                self.cursor_to(op_range.end - 1)?;
+            }
+            Key::Char(ch) => {
+                let mut cur_col = min(self.cur_col, self.cur_pair()?.1.len());
+                self.cur_pair()?.1.insert(cur_col, ch);
+                cur_col = if cur_col < 3 { 3 } else { cur_col + 1 };
+
+                if ch.is_whitespace()
+                    || ch == COEFF_DELIM
+                    || ch == '.'
+                    || self.syntax_error()?
+                {
+                    let cur_line: String = self.cur_pair()?.1.iter().collect();
+                    print!("\r\x1b[2K{}", cur_line);
+                    self.reeval()?;
+                    self.cursor_to(cur_col)?;
+
+                    return Ok(State::Continue(Mode::Normal, None));
+                }
+
+                self.render_decl()?;
+                cur_col = cur_col.clamp(1, max(self.cur_pair()?.1.len() - 1, 2));
+                self.cursor_to(cur_col)?;
+            }
+            Key::Backspace => {
+                if self.cur_col < 2 {
+                    return Ok(State::Continue(
+                        Mode::Normal,
+                        Some(String::from("Nothing to delete!")),
+                    ));
+                }
+
+                self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
+                let cur_col = self.cur_col - 1;
+                self.cur_pair()?.1.remove(cur_col);
+                self.cur_col = cur_col;
+
+                if self.syntax_error()? {
+                    let cur_line: String = self.cur_pair()?.1.iter().collect();
+                    print!("\r\x1b[2K{}", cur_line);
+                    self.reeval()?;
+                    self.cursor_to(cur_col)?;
+
+                    return Ok(State::Continue(Mode::Normal, None));
+                }
+
+                self.render_decl()?;
+            }
+            Key::ArrowRight => {
+                let cur_col = if self.name_finished {
+                    min(self.cur_col + 1, self.cur_pair()?.1.len())
+                } else {
+                    min(self.cur_col + 1, self.func_name_buf.len())
+                };
+
+                self.cursor_to(cur_col)?;
+
+                return Ok(State::Continue(Mode::FunctionDecl, None));
+            }
+            Key::ArrowLeft => {
+                let leftmost_pos = if self.name_finished { 1 } else { 3 };
+                self.cursor_to(if self.cur_col <= leftmost_pos {
+                    1
+                } else {
+                    self.cur_col - 1
+                })?;
+
+                return Ok(State::Continue(Mode::FunctionDecl, None));
+            }
+            _ => (),
+        }
+
         Ok(State::Continue(Mode::FunctionDecl, None))
     }
 
@@ -274,9 +606,6 @@ impl FunctionHandler {
             .collect())
     }
 
-    // TODO: Figure out how to handle the functions
-    // Maybe have the name and function separated?
-    // "VAR some_func_name" -> define function separately
     fn init_decl(&mut self) -> Result<(), Box<dyn Error>> {
         self.funcs.clear();
         self.lines.clear();
@@ -295,6 +624,62 @@ impl FunctionHandler {
         self.cur_col = self.cur_pair()?.1.len();
         self.name_finished = false;
         self.fresh = false;
+
+        Ok(())
+    }
+
+    fn reeval(&mut self) -> Result<(), Box<dyn error::Error>> {
+        let cur_col = self.cur_col;
+        let (cur_func, cur_line) = self.cur_pair()?;
+
+        match cur_func.reparse(cur_line, cur_col) {
+            Err(FunctionError::ParseError(pos, ch)) => {
+                print!(
+                    "\x1b[{}G{ERR_COLOR}{ch}{RESET}\x1b[{}G",
+                    pos + 1,
+                    self.cur_col + 1
+                );
+                stdout().flush()?
+            }
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    fn syntax_error(&mut self) -> Result<bool, InternalStateError> {
+        let cur_col = self.cur_col;
+        let (cur_func, cur_line) = self.cur_pair()?;
+        Ok(cur_func.reparse(cur_line, cur_col).is_err())
+    }
+
+    fn reset_cursor_pos(&mut self) -> Result<(), Box<dyn error::Error>> {
+        let (cur_func, cur_line) = self.cur_pair()?;
+        let op_range = operands_range(&cur_line, cur_func.cur_operands());
+
+        if !op_range.is_empty() {
+            self.cur_col = op_range.end;
+        } else {
+            self.cur_col = self.cur_col.clamp(
+                if self.name_finished { 0 } else { 3 },
+                if self.name_finished {
+                    self.func_name_buf.len()
+                } else {
+                    self.cur_pair()?.1.len()
+                },
+            );
+        }
+
+        print!("\x1b[{}G", self.cur_col + 1);
+        stdout().flush()?;
+
+        Ok(())
+    }
+
+    fn cursor_to(&mut self, pos: usize) -> Result<(), io::Error> {
+        self.cur_col = pos;
+        print!("\x1b[{}G", self.cur_col + 1);
+        stdout().flush()?;
 
         Ok(())
     }

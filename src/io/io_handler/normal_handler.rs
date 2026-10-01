@@ -7,20 +7,12 @@ use std::{
 };
 
 use crate::{
-    fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError},
-    io::{
-        Key, State,
-        io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError,
-            Mode, RESET, SHOW_CURSOR,
+    fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError}, io::{
+        Key, State, io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET, SHOW_CURSOR, SYNTAX_ERR_MSG,
         },
-    },
-    operation::{Operation, OperationExecutionError},
-    opts,
-    terminal::Terminal,
+    }, operation::{Operation, OperationExecutionError}, opts, terminal::Terminal,
 };
-
-const SYNTAX_ERR_MSG: &str = "\x1b[41mResolve syntax errors first!\x1b[0m";
 
 pub struct NormalHandler {
     fold_exprs: Vec<FoldExpr>,
@@ -104,22 +96,22 @@ impl NormalHandler {
                         .map_err(|_| InternalStateError::FoldExprError)?,
                 ));
             }
+            Key::Char('C') => {
+                self.fold_exprs.clear();
+                self.lines.clear();
+
+                self.fold_exprs.push(FoldExpr::default());
+                self.lines.push(Vec::new());
+
+                self.render()?;
+                self.reset_cursor_pos()?;
+            }
             Key::Char('c') => {
                 *self.cur_pair()?.0 = FoldExpr::default();
                 self.render()?;
                 self.reset_cursor_pos()?;
             }
-            Key::Char('C') => {
-                self.fold_exprs.clear();
-                self.lines.clear();
-
-                self.fold_exprs = vec![FoldExpr::default()];
-                self.lines = vec![Vec::new()];
-
-                self.render()?;
-                self.reset_cursor_pos()?;
-            }
-            Key::Char('r') => {
+            Key::Char('R') => {
                 if self.syntax_error()? {
                     return Ok(State::Continue(
                         Mode::Normal,
@@ -133,7 +125,7 @@ impl NormalHandler {
                 self.render()?;
                 self.reset_cursor_pos()?;
             }
-            Key::Char('e') => {
+            Key::Char('E') => {
                 if self.syntax_error()? {
                     return Ok(State::Continue(
                         Mode::Normal,
@@ -171,8 +163,8 @@ impl NormalHandler {
                 self.render()?;
                 self.reset_cursor_pos()?;
             }
-            Key::Char(ch) if ch == 'w' || ch == 'b' => {
-                let get_operand_idx = if ch == 'w' {
+            Key::Char(ch) if ch == 'W' || ch == 'B' => {
+                let get_operand_idx = if ch == 'W' {
                     FoldExpr::next_operand
                 } else {
                     FoldExpr::previous_operand
@@ -206,6 +198,7 @@ impl NormalHandler {
                 }
 
                 self.render()?;
+                // TODO: Investigate if the lower bound should be 1 or 2
                 cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len() - 1, 2));
                 self.cursor_to(cur_col)?;
             }

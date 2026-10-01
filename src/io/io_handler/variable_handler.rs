@@ -1,7 +1,5 @@
 use std::{
-    cmp::min,
-    error::Error,
-    io::{BufWriter, StdoutLock, Write, stdout},
+    cmp::min, error::Error, io::{self, BufWriter, StdoutLock, Write, stdout},
 };
 
 use crate::{
@@ -111,7 +109,7 @@ impl VariableHandler {
                         Mode::Normal,
                         Some(format!(
                             "{SUCCESS_COLOR}\
-                            Variable removal successful!\
+                            Variable deletion successful!\
                             {RESET}"
                         )),
                     )),
@@ -119,7 +117,7 @@ impl VariableHandler {
                         Mode::Normal,
                         Some(format!(
                             "{ERR_COLOR}\
-                            Variable removal failed!\
+                            Variable deletion failed!\
                             {RESET}"
                         )),
                     )),
@@ -142,7 +140,7 @@ impl VariableHandler {
                 };
             }
             Key::Char('C') => {
-                self.input_buf.drain(4..);
+                self.input_buf.drain(INSERTION_PREFIX.len()..);
                 self.cur_selection = None;
                 self.render_decl()?;
                 self.cursor_to(self.input_buf.len())?;
@@ -449,7 +447,7 @@ impl VariableHandler {
         Ok(())
     }
 
-    fn cursor_to(&mut self, pos: usize) -> Result<(), Box<dyn Error>> {
+    fn cursor_to(&mut self, pos: usize) -> io::Result<()> {
         self.cur_col = pos;
         print!("\x1b[{}G", self.cur_col + 1);
         stdout().flush()?;

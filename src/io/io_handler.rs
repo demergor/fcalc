@@ -24,6 +24,7 @@ pub const HOME: &str = "\x1b[H";
 pub const RESET: &str = "\x1b[0m";
 pub const RESET_COLORS: &str = "\x1b[39m\x1b[49m";
 pub const SHOW_CURSOR: &str = "\x1b[?25h";
+pub const SYNTAX_ERR_MSG: &str = "\x1b[41mResolve syntax errors first!\x1b[0m";
 
 const MSG_FMT: &str = "\x1b[3m";
 

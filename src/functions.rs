@@ -84,6 +84,10 @@ impl Function {
         )?)
     }
 
+    pub fn reduce(&mut self) {
+        todo!()
+    }
+
     pub fn reparse(
         &mut self,
         slice: &[char],
@@ -106,11 +110,65 @@ impl Function {
         Ok(())
     }
 
+    pub fn reverse(&mut self) {
+        if self.operands.is_empty() {
+            return;
+        }
+
+        self.operands.reverse();
+        self.cur_operands = (self.operands.len() - 1)..self.operands.len();
+    }
+
+    pub fn new_from_cur_operands(&self) -> Option<Function> {
+        if self.cur_operands.is_empty() {
+            return None;
+        }
+
+        let mut new_func = Function::default();
+        new_func.operation = Operation::Addition;
+        new_func
+            .operands
+            .extend(self.operands[self.cur_operands.clone()].iter().cloned());
+
+        Some(new_func)
+    }
+
     pub fn param_names(&self) -> Vec<String> {
         self.params.iter().map(|(name, _)| name.clone()).collect()
     }
 
     pub fn cur_operands(&self) -> ops::Range<usize> {
+        self.cur_operands.clone()
+    }
+
+    pub fn next_operands(&mut self) -> ops::Range<usize> {
+        if self.cur_operands.is_empty() {
+            return self.cur_operands.clone();
+        }
+
+        self.cur_operands.start = (self.cur_operands.start + 1) % self.operands.len();
+        self.cur_operands.end = (self.cur_operands.end + 1) & self.operands.len();
+
+        self.cur_operands.clone()
+    }
+
+    pub fn previous_operands(&mut self) -> ops::Range<usize> {
+        if self.cur_operands.is_empty() {
+            return self.cur_operands.clone();
+        }
+
+        self.cur_operands.start = if self.cur_operands.start == 0 {
+            self.operands.len() - 1
+        } else {
+            self.cur_operands.start - 1
+        };
+
+        self.cur_operands.end = if self.cur_operands.end == 0 {
+            self.operands.len() - 1
+        } else {
+            self.cur_operands.end - 1
+        };
+
         self.cur_operands.clone()
     }
 
@@ -125,7 +183,8 @@ impl Function {
     pub fn change_operands(&mut self, other: &Function) {
         self.cur_operands =
             self.cur_operands.start..(self.cur_operands.start + other.operands.len());
-        self.operands.splice(self.cur_operands.clone(), other.operands.clone());
+        self.operands
+            .splice(self.cur_operands.clone(), other.operands.clone());
 
         self.params.extend(other.params.clone());
         self.params.sort_by(|a, b| a.0.cmp(&b.0));

@@ -31,7 +31,7 @@ const MSG_FMT: &str = "\x1b[3m";
 pub struct IoHandler {
     mode: Mode,
     normal_handler: NormalHandler,
-    // func_handler: FunctionHandler,
+    func_handler: FunctionHandler,
     var_handler: VariableHandler,
 }
 
@@ -40,7 +40,7 @@ impl IoHandler {
         Ok(IoHandler {
             mode: Mode::Normal,
             normal_handler: NormalHandler::new(bounds)?,
-            // func_handler: FunctionHandler::new(bounds)?,
+            func_handler: FunctionHandler::new(bounds)?,
             var_handler: VariableHandler::new(bounds)?,
         })
     }
@@ -48,7 +48,7 @@ impl IoHandler {
     pub fn update(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
         let state = match self.mode {
             Mode::Normal => self.normal_handler.handle(key)?,
-            Mode::FunctionDecl => todo!(), // self.func_handler.handle_decl(key)?,
+            Mode::FunctionDecl => self.func_handler.handle_decl(key)?,
             Mode::FunctionSelect => todo!(), // self.func_handler.handle_select(key)?,
             Mode::VariableDecl => self.var_handler.handle_decl(key)?,
             Mode::VariableSelect => self.var_handler.handle_select(key)?,
@@ -73,7 +73,7 @@ impl IoHandler {
                     self.normal_handler.reset_cursor_pos()?;
                     mode = Mode::Normal;
                 }
-                Mode::FunctionDecl => todo!(), // self.func_handler.render_decl()?,
+                Mode::FunctionDecl => self.func_handler.render_decl()?,
                 Mode::FunctionSelect => todo!(), //self.func_handler.render_select()?,
                 Mode::VariableDecl => self.var_handler.render_decl()?,
                 Mode::VariableSelect => self.var_handler.render_select()?,

@@ -11,17 +11,11 @@ use crate::{
     functions::{
         self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError,
         HandleResult, INSERTION_PREFIX,
-    },
-    io::{
-        Key, State,
-        io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, Mode,
-            RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
+    }, io::{
+        Key, State, io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
         },
-    },
-    operation::Operation,
-    opts,
-    terminal::Terminal,
+    }, operation::Operation, opts, terminal::Terminal,
 };
 
 const DECL_HINT: &str = "<F> = declare a new function, <D> = delete existing function";
@@ -42,7 +36,7 @@ pub struct FunctionHandler {
 }
 
 impl FunctionHandler {
-    pub fn new(bounds: &Terminal) -> Result<FunctionHandler, Box<dyn Error>> {
+    pub fn new(bounds: &Terminal) -> Result<FunctionHandler, IoError> {
         Ok(FunctionHandler {
             fresh: true,
             name_finished: false,
@@ -76,7 +70,7 @@ impl FunctionHandler {
                 } else {
                     self.fresh = true;
                     return Ok(State::Continue(
-                        Mode::FunctionDecl,
+                        Mode::Normal,
                         Some(String::from("Cancelled function declaration")),
                     ));
                 }
@@ -251,7 +245,7 @@ impl FunctionHandler {
             Key::Char('E') if self.name_finished => {
                 if self.syntax_error()? {
                     return Ok(State::Continue(
-                        Mode::Normal,
+                        Mode::FunctionDecl,
                         Some(SYNTAX_ERR_MSG.to_owned()),
                     ));
                 }
@@ -259,7 +253,7 @@ impl FunctionHandler {
                 let cur_func = self.cur_pair()?.0;
                 let Some(new_func) = cur_func.new_from_cur_operands() else {
                     return Ok(State::Continue(
-                        Mode::Normal,
+                        Mode::FunctionDecl,
                         Some(SYNTAX_ERR_MSG.to_owned()),
                     ));
                 };
@@ -311,9 +305,19 @@ impl FunctionHandler {
                 self.cursor_to(op_range.end - 1)?;
             }
             Key::Char(ch) => {
-                let mut cur_col = min(self.cur_col, self.cur_pair()?.1.len());
-                self.cur_pair()?.1.insert(cur_col, ch);
-                cur_col = if cur_col < 3 { 3 } else { cur_col + 1 };
+                let mut cur_col;
+                let buf = if !self.name_finished {
+                    cur_col = self.func_name_buf.len();
+                    &mut self.func_name_buf
+                } else {
+                    cur_col = self.cur_pair()?.1.len();
+                    self.cur_pair()?.1
+                };
+
+                cur_col = min(cur_col, buf.len());
+                buf.insert(cur_col, ch);
+                let buflen = buf.len();
+                cur_col += 1;
 
                 if ch.is_whitespace()
                     || ch == COEFF_DELIM
@@ -325,17 +329,20 @@ impl FunctionHandler {
                     self.reeval()?;
                     self.cursor_to(cur_col)?;
 
-                    return Ok(State::Continue(Mode::Normal, None));
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
                 }
 
                 self.render_decl()?;
-                cur_col = cur_col.clamp(1, max(self.cur_pair()?.1.len() - 1, 2));
+                cur_col = cur_col.clamp(
+                    if self.name_finished { 1 } else { INSERTION_PREFIX.len() },
+                    max(buflen - 1, 2),
+                );
                 self.cursor_to(cur_col)?;
             }
             Key::Backspace => {
                 if self.cur_col < 2 {
                     return Ok(State::Continue(
-                        Mode::Normal,
+                        Mode::FunctionDecl,
                         Some(String::from("Nothing to delete!")),
                     ));
                 }
@@ -351,7 +358,7 @@ impl FunctionHandler {
                     self.reeval()?;
                     self.cursor_to(cur_col)?;
 
-                    return Ok(State::Continue(Mode::Normal, None));
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
                 }
 
                 self.render_decl()?;
@@ -397,10 +404,10 @@ impl FunctionHandler {
         }
 
         let func_name = self.func_name_buf.iter().collect();
-        if self.name_finished {
+        if !self.name_finished {
             write!(out, "Enter the function name below:\n{func_name}")?;
             self.render_matches(func_name, &mut out)?;
-            write!(out, "{}{SHOW_CURSOR}", self.cur_col + 1)?;
+            write!(out, "\x1b[{}G{SHOW_CURSOR}", self.cur_col + 1)?;
             out.flush()?;
 
             return Ok(());
@@ -525,7 +532,7 @@ impl FunctionHandler {
                 write!(out, "=> \x1b[1m")?;
             }
 
-            write!(out, "{} = {}\x1b[0m", matches[i].0, matches[i].1)?;
+            write!(out, "{} = {}{RESET}", matches[i].0, matches[i].1)?;
             rem_height -= matches[i].2;
         }
 
@@ -615,13 +622,13 @@ impl FunctionHandler {
         let mut buf = Vec::new();
         root_func.write_chars(&mut buf)?;
 
-        let mut root_line = functions::INSERTION_PREFIX.to_vec();
-        root_line.extend(buf.iter());
-
+        self.func_name_buf.extend(INSERTION_PREFIX.iter());
         self.funcs.push(root_func);
-        self.lines.push(root_line);
+        self.lines.push(buf);
 
-        self.cur_col = self.cur_pair()?.1.len();
+        println!("{}", self.func_name_buf.iter().collect::<String>());
+
+        self.cur_col = self.func_name_buf.len();
         self.name_finished = false;
         self.fresh = false;
 
@@ -654,20 +661,18 @@ impl FunctionHandler {
     }
 
     fn reset_cursor_pos(&mut self) -> Result<(), Box<dyn error::Error>> {
+        if !self.name_finished {
+            self.cursor_to(self.func_name_buf.len())?;
+            return Ok(());
+        }
+
         let (cur_func, cur_line) = self.cur_pair()?;
         let op_range = operands_range(&cur_line, cur_func.cur_operands());
 
         if !op_range.is_empty() {
             self.cur_col = op_range.end;
         } else {
-            self.cur_col = self.cur_col.clamp(
-                if self.name_finished { 0 } else { 3 },
-                if self.name_finished {
-                    self.func_name_buf.len()
-                } else {
-                    self.cur_pair()?.1.len()
-                },
-            );
+            self.cur_col = self.cur_col.clamp(0, self.cur_pair()?.1.len());
         }
 
         print!("\x1b[{}G", self.cur_col + 1);

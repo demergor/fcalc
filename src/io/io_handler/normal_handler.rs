@@ -181,6 +181,7 @@ impl NormalHandler {
 
                 self.cursor_to(op_end - 1)?;
             }
+            Key::Char('F') => return Ok(State::Continue(Mode::FunctionDecl, None)),
             Key::Char('V') => return Ok(State::Continue(Mode::VariableDecl, None)),
             Key::Char('v') => return Ok(State::Continue(Mode::VariableSelect, None)),
             Key::Char(ch) => {

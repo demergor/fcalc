@@ -10,8 +10,8 @@ use std::{
 use crate::operation::{self, Operation, OperationExecutionError};
 
 pub const COEFF_DELIM: char = '\'';
-pub const INSERTION_PREFIX: &[char] = &['F', 'U', 'N'];
-pub const DELETION_PREFIX: &[char] = &['D', 'E', 'L'];
+pub const INSERTION_PREFIX: &[char] = &['F', 'U', 'N', ' '];
+pub const DELETION_PREFIX: &[char] = &['D', 'E', 'L', ' '];
 
 pub struct FuncMap {
     pub map: BTreeMap<String, Function>,
@@ -217,7 +217,10 @@ impl Function {
     fn write_fmt<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
         write!(writer, "{} ", self.operation.as_char())?;
         for term in &self.operands {
-            write!(writer, "{}", term.coeff)?;
+            if term.coeff != 1.0 || term.vars.is_empty() {
+                write!(writer, "{}", term.coeff)?;
+            }
+
             for var_name in &term.vars {
                 write!(writer, "{COEFF_DELIM}{}", var_name,)?;
             }
@@ -340,6 +343,13 @@ fn parse_func(
             ch if ch.is_whitespace() => {
                 if !in_num && !already_delim {
                     continue;
+                }
+
+                if already_delim
+                    && cur_var.is_empty()
+                    && cur_term_vars.is_empty()
+                {
+                    return Err(FunctionError::ParseError(idx, *ch));
                 }
 
                 if already_delim && !cur_var.is_empty() {

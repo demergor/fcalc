@@ -11,14 +11,22 @@ use crate::{
     functions::{
         self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError,
         HandleResult, INSERTION_PREFIX,
-    }, io::{
-        Key, State, io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
+    },
+    io::{
+        Key, State,
+        io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError,
+            Mode, RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
         },
-    }, operation::Operation, opts, terminal::Terminal,
+    },
+    operation::Operation,
+    opts,
+    terminal::Terminal,
 };
 
 const DECL_HINT: &str = "<F> = declare a new function, <D> = delete existing function";
+const NAME_MIN_LEN: usize = INSERTION_PREFIX.len();
+const LINE_MIN_LEN: usize = 1;
 
 pub struct FunctionHandler {
     fresh: bool,
@@ -155,6 +163,13 @@ impl FunctionHandler {
                 }
 
                 if !self.name_finished {
+                    if self.func_name_buf.len() == INSERTION_PREFIX.len() {
+                        return Ok(State::Continue(
+                            Mode::FunctionDecl,
+                            Some(String::from("Please provide a function name!")),
+                        ));
+                    }
+
                     self.name_finished = true;
 
                     self.funcs.clear();
@@ -307,10 +322,10 @@ impl FunctionHandler {
             Key::Char(ch) => {
                 let mut cur_col;
                 let buf = if !self.name_finished {
-                    cur_col = self.func_name_buf.len();
+                    cur_col = self.cur_col;
                     &mut self.func_name_buf
                 } else {
-                    cur_col = self.cur_pair()?.1.len();
+                    cur_col = self.cur_col;
                     self.cur_pair()?.1
                 };
 
@@ -324,7 +339,11 @@ impl FunctionHandler {
                     || ch == '.'
                     || self.syntax_error()?
                 {
-                    let cur_line: String = self.cur_pair()?.1.iter().collect();
+                    let cur_line: String = if self.name_finished {
+                        self.cur_pair()?.1.iter().collect()
+                    } else {
+                        self.func_name_buf.iter().collect()
+                    };
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
                     self.cursor_to(cur_col)?;
@@ -334,25 +353,37 @@ impl FunctionHandler {
 
                 self.render_decl()?;
                 cur_col = cur_col.clamp(
-                    if self.name_finished { 1 } else { INSERTION_PREFIX.len() },
-                    max(buflen - 1, 2),
+                    if self.name_finished {
+                        1
+                    } else {
+                        INSERTION_PREFIX.len()
+                    },
+                    max(buflen, 2),
                 );
                 self.cursor_to(cur_col)?;
             }
             Key::Backspace => {
-                if self.cur_col < 2 {
+                let cur_col = self.cur_col;
+                let min_len;
+                let buf = if self.name_finished {
+                    min_len = LINE_MIN_LEN;
+                    self.cur_pair()?.1
+                } else {
+                    min_len = NAME_MIN_LEN;
+                    &mut self.func_name_buf
+                };
+
+                if cur_col <= min_len {
                     return Ok(State::Continue(
                         Mode::FunctionDecl,
                         Some(String::from("Nothing to delete!")),
                     ));
                 }
 
-                self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
-                let cur_col = self.cur_col - 1;
-                self.cur_pair()?.1.remove(cur_col);
-                self.cur_col = cur_col;
+                let cur_col = min(cur_col, buf.len()) - 1;
+                buf.remove(cur_col);
 
-                if self.syntax_error()? {
+                if self.name_finished && self.syntax_error()? {
                     let cur_line: String = self.cur_pair()?.1.iter().collect();
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
@@ -362,6 +393,7 @@ impl FunctionHandler {
                 }
 
                 self.render_decl()?;
+                self.cursor_to(cur_col)?;
             }
             Key::ArrowRight => {
                 let cur_col = if self.name_finished {
@@ -413,9 +445,13 @@ impl FunctionHandler {
             return Ok(());
         }
 
+        let func_name: String = self
+            .func_name_buf
+            .iter()
+            .skip(INSERTION_PREFIX.len())
+            .collect();
         let param_list: String = self.cur_pair()?.0.param_names().join(", ");
-        let cur_line: String = self.cur_pair()?.1.iter().collect();
-        write!(out, "Define {func_name}({param_list}) below:\n{cur_line}")?;
+        write!(out, "Define {func_name}({param_list}) below:\n")?;
 
         let width = self.term_width as usize;
         let mut rem_height = self.term_height as usize
@@ -463,7 +499,7 @@ impl FunctionHandler {
 
         writeln!(out)?;
         self.render_matches(func_name, &mut out)?;
-        write!(out, "{}{SHOW_CURSOR}", self.cur_col + 1)?;
+        write!(out, "\x1b[{}G{SHOW_CURSOR}", self.cur_col + 1)?;
         out.flush()?;
 
         Ok(())

@@ -484,7 +484,7 @@ impl FunctionHandler {
             let mut line_cp = line.clone().to_vec();
             let highlight_range = operands_range(&line_cp, func.cur_operands());
 
-            if !highlight_range.is_empty() {
+            if !highlight_range.is_empty() && it.peek().is_some() {
                 line_cp.splice(highlight_range.end..highlight_range.end, RESET.chars());
                 line_cp.splice(
                     highlight_range.start..highlight_range.start,
@@ -758,7 +758,6 @@ impl Display for InternalStateError {
 
 impl error::Error for InternalStateError {}
 
-// TODO: Test this
 fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<usize> {
     if idx_range.is_empty() {
         return idx_range;

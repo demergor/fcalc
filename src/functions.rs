@@ -345,10 +345,7 @@ fn parse_func(
                     continue;
                 }
 
-                if already_delim
-                    && cur_var.is_empty()
-                    && cur_term_vars.is_empty()
-                {
+                if already_delim && cur_var.is_empty() && cur_term_vars.is_empty() {
                     return Err(FunctionError::ParseError(idx, *ch));
                 }
 
@@ -375,6 +372,11 @@ fn parse_func(
             }
             &COEFF_DELIM => {
                 if already_delim {
+                    if cur_var.is_empty() {
+                        return Err(FunctionError::ParseError(idx, '\''));
+                    }
+
+                    params.push(cur_var.clone());
                     cur_term_vars.push(cur_var.clone());
                     cur_var.clear();
                 }
@@ -400,6 +402,10 @@ fn parse_func(
             cur_operand = operands.len()..operands.len() + 1;
             cursor_on_operand = in_num || already_delim;
         }
+    }
+
+    if already_delim && cur_var.is_empty() && cur_term_vars.is_empty() {
+        return Err(FunctionError::ParseError(idx, '\''));
     }
 
     cur_operand = match cur_operand {

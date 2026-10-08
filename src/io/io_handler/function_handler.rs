@@ -395,6 +395,21 @@ impl FunctionHandler {
                 self.render_decl()?;
                 self.cursor_to(cur_col)?;
             }
+            Key::ArrowUp => {
+                self.cur_selection = match self.cur_selection {
+                    Some(selection) if selection > 0 => Some(selection - 1),
+                    Some(0) => None,
+                    _ => None,
+                };
+                self.render_decl()?;
+            }
+            Key::ArrowDown => {
+                self.cur_selection = match self.cur_selection {
+                    Some(selection) => Some(selection + 1),
+                    None => Some(0),
+                };
+                self.render_decl()?;
+            }
             Key::ArrowRight => {
                 let cur_col = if self.name_finished {
                     min(self.cur_col + 1, self.cur_pair()?.1.len())
@@ -416,7 +431,6 @@ impl FunctionHandler {
 
                 return Ok(State::Continue(Mode::FunctionDecl, None));
             }
-            _ => (),
         }
 
         Ok(State::Continue(Mode::FunctionDecl, None))
@@ -435,9 +449,16 @@ impl FunctionHandler {
             write!(out, "{HIDE_CURSOR}{HOME}{ERASE_FROM_CURSOR}")?;
         }
 
-        let func_name = self.func_name_buf.iter().collect();
+        let func_name: String = self
+            .func_name_buf
+            .iter()
+            .skip(INSERTION_PREFIX.len())
+            .collect();
+
         if !self.name_finished {
-            write!(out, "Enter the function name below:\n{func_name}")?;
+            let line: String = self.func_name_buf.iter().collect();
+            write!(out, "Enter the function name below:\n{line}")?;
+
             self.render_matches(func_name, &mut out)?;
             write!(out, "\x1b[{}G{SHOW_CURSOR}", self.cur_col + 1)?;
             out.flush()?;
@@ -445,11 +466,6 @@ impl FunctionHandler {
             return Ok(());
         }
 
-        let func_name: String = self
-            .func_name_buf
-            .iter()
-            .skip(INSERTION_PREFIX.len())
-            .collect();
         let param_list: String = self.cur_pair()?.0.param_names().join(", ");
         write!(out, "Define {func_name}({param_list}) below:\n")?;
 
@@ -555,7 +571,6 @@ impl FunctionHandler {
             first_idx += 1;
         }
 
-        writeln!(out)?;
         for i in first_idx..matches.len() {
             if rem_height <= matches[i].2 {
                 break;

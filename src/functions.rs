@@ -3,7 +3,7 @@ use std::{
     collections::BTreeMap,
     fmt::Display,
     fs::File,
-    io::{self, BufRead, BufReader},
+    io::{self, BufRead, BufReader, Write},
     ops,
 };
 
@@ -61,6 +61,18 @@ impl FuncMap {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for FuncMap {
+    fn drop(&mut self) {
+        let Ok(mut file) = File::create(crate::func_config_path()) else {
+            panic!("Couldn't open file to write function config to!");
+        };
+
+        for (key, val) in &self.map {
+            let _ = writeln!(file, "FUNC {key}:{val}");
+        }
     }
 }
 
@@ -469,12 +481,23 @@ fn parse_ins(line: &str) -> Option<(String, Function)> {
         .take_while(|&ch| ch != ':')
         .collect();
 
+    if func_name.contains(' ') {
+        return None;
+    }
+
     let func_def: Vec<char> = line
         .chars()
         .skip(INSERTION_PREFIX.len())
         .skip_while(|&ch| ch != ':')
         .skip(1)
         .collect();
+
+    if func_def.len() == 2
+        && let Ok(_) = Operation::try_from(func_def[0])
+        && func_def[1].is_whitespace()
+    {
+        return None;
+    }
 
     let mut func = Function::default();
     if func.reparse(&func_def, 0).is_err() {

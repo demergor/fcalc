@@ -513,7 +513,6 @@ impl FunctionHandler {
             first = false;
         }
 
-        writeln!(out)?;
         self.render_matches(func_name, &mut out)?;
         write!(out, "\x1b[{}G{SHOW_CURSOR}", self.cur_col + 1)?;
         out.flush()?;
@@ -571,6 +570,7 @@ impl FunctionHandler {
             first_idx += 1;
         }
 
+        writeln!(out)?;
         for i in first_idx..matches.len() {
             if rem_height <= matches[i].2 {
                 break;

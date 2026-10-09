@@ -70,8 +70,9 @@ impl Drop for FuncMap {
             panic!("Couldn't open file to write function config to!");
         };
 
+        let ins_pref: String = INSERTION_PREFIX.iter().collect();
         for (key, val) in &self.map {
-            let _ = writeln!(file, "FUNC {key}:{val}");
+            let _ = writeln!(file, "{ins_pref}{key}:{val}");
         }
     }
 }
@@ -267,6 +268,7 @@ pub struct Term {
     pub coeff: f64,
 }
 
+#[derive(Debug)]
 pub enum HandleResult {
     Insertion,
     DeletionFail,

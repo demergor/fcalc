@@ -9,14 +9,14 @@ use std::{
 
 use crate::{
     functions::{
-        self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError,
-        HandleResult, INSERTION_PREFIX,
+        self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError, HandleResult,
+        INSERTION_PREFIX,
     },
     io::{
         Key, State,
         io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError,
-            Mode, RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET,
+            RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
         },
     },
     operation::Operation,
@@ -116,6 +116,7 @@ impl FunctionHandler {
 
                     self.func_name_buf.drain(INSERTION_PREFIX.len()..);
                     self.func_name_buf.extend(matches[selection].0.chars());
+                    self.cur_selection = None;
 
                     if self.func_name_buf.starts_with(INSERTION_PREFIX) {
                         self.name_finished = true;
@@ -124,9 +125,12 @@ impl FunctionHandler {
                         self.funcs.push(matches[selection].1.clone());
                         self.lines.drain(1..);
                         self.funcs[0].write_chars(&mut self.lines[0])?;
+                        self.funcs[0].cur_operand_to_last();
 
                         self.render_decl()?;
                         self.reset_cursor_pos()?;
+
+                        return Ok(State::Continue(Mode::FunctionDecl, None));
                     }
                 }
 
@@ -178,6 +182,7 @@ impl FunctionHandler {
                     self.funcs.push(Function::default());
                     let buf = self.lines.push_mut(Vec::new());
                     self.funcs[0].write_chars(buf)?;
+                    self.funcs[0].cur_operand_to_last();
 
                     self.render_decl()?;
                     self.reset_cursor_pos()?;
@@ -215,8 +220,8 @@ impl FunctionHandler {
                     };
                 }
 
-                let mut child_func =
-                    self.funcs.pop().ok_or(InternalStateError::NoFunction)?;
+                let mut child_func = self.funcs.pop().ok_or(InternalStateError::NoFunction)?;
+
                 self.lines.pop();
                 child_func.reduce();
 
@@ -334,11 +339,7 @@ impl FunctionHandler {
                 let buflen = buf.len();
                 cur_col += 1;
 
-                if ch.is_whitespace()
-                    || ch == COEFF_DELIM
-                    || ch == '.'
-                    || self.syntax_error()?
-                {
+                if ch.is_whitespace() || ch == COEFF_DELIM || ch == '.' || self.syntax_error()? {
                     let cur_line: String = if self.name_finished {
                         self.cur_pair()?.1.iter().collect()
                     } else {
@@ -396,18 +397,28 @@ impl FunctionHandler {
                 self.cursor_to(cur_col)?;
             }
             Key::ArrowUp => {
+                if self.name_finished {
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                }
+
                 self.cur_selection = match self.cur_selection {
                     Some(selection) if selection > 0 => Some(selection - 1),
                     Some(0) => None,
                     _ => None,
                 };
+
                 self.render_decl()?;
             }
             Key::ArrowDown => {
+                if self.name_finished {
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                }
+
                 self.cur_selection = match self.cur_selection {
                     Some(selection) => Some(selection + 1),
                     None => Some(0),
                 };
+
                 self.render_decl()?;
             }
             Key::ArrowRight => {
@@ -467,12 +478,11 @@ impl FunctionHandler {
         }
 
         let param_list: String = self.cur_pair()?.0.param_names().join(", ");
-        write!(out, "Define {func_name}({param_list}) below:\n")?;
+        write!(out, "Define \x1b[3m{func_name}({param_list})\x1b[0m below:\n")?;
 
         let width = self.term_width as usize;
-        let mut rem_height = self.term_height as usize
-            - (param_list.chars().count() + width - 1) / width
-            + 1;
+        let mut rem_height =
+            self.term_height as usize - (param_list.chars().count() + width - 1) / width + 1;
         let to_skip: usize = {
             let mut idx = self.lines.len();
             while idx > 0 && rem_height > 0 {
@@ -513,7 +523,7 @@ impl FunctionHandler {
             first = false;
         }
 
-        self.render_matches(func_name, &mut out)?;
+        // self.render_matches(func_name, &mut out)?;
         write!(out, "\x1b[{}G{SHOW_CURSOR}", self.cur_col + 1)?;
         out.flush()?;
 
@@ -593,9 +603,7 @@ impl FunctionHandler {
         Ok(())
     }
 
-    fn cur_pair(
-        &mut self,
-    ) -> Result<(&mut Function, &mut Vec<char>), InternalStateError> {
+    fn cur_pair(&mut self) -> Result<(&mut Function, &mut Vec<char>), InternalStateError> {
         if self.funcs.len() != self.lines.len() {
             return Err(InternalStateError::OutOfSync);
         }
@@ -618,8 +626,7 @@ impl FunctionHandler {
         }
 
         let mut it = self.funcs.iter_mut().rev().zip(self.lines.iter_mut().rev());
-        let (mut cur_func, mut cur_line) =
-            it.next().ok_or(InternalStateError::NoFunction)?;
+        let (mut cur_func, mut cur_line) = it.next().ok_or(InternalStateError::NoFunction)?;
         cur_func.write_chars(&mut cur_line)?;
 
         while let Some((next_func, next_line)) = it.next() {
@@ -654,10 +661,8 @@ impl FunctionHandler {
             .iter()
             .filter(|(key, _)| key.contains(needle))
             .map(|(key, val)| {
-                let height = ((key.chars().count() + val.to_string().chars().count())
-                    - 1)
-                    / width
-                    + 1;
+                let height =
+                    ((key.chars().count() + val.to_string().chars().count()) - 1) / width + 1;
                 acc += height;
                 (key.clone(), val.clone(), height, acc)
             })
@@ -680,6 +685,7 @@ impl FunctionHandler {
         println!("{}", self.func_name_buf.iter().collect::<String>());
 
         self.cur_col = self.func_name_buf.len();
+        self.cur_selection = None;
         self.name_finished = false;
         self.fresh = false;
 
@@ -824,7 +830,7 @@ mod tests {
     fn test_operands_range() {
         let mut test_func = Function::default();
         let test_input: Vec<char> =
-            "/ 1'x.i'x 2.1'!n 3'var1 0'z 39'0 -69.67'... -1521'va-l -6666.1'x.i "
+            "/ 'x.i'x 2.1'!n 3'var1 0'z 39'0 -69.67'... -1521'va-l -6666.1'x.i "
                 .chars()
                 .collect();
         test_func
@@ -839,7 +845,7 @@ mod tests {
         assert_eq!(test_input[1..], buf[1..]);
 
         let actual = operands_range(&buf, 2..8);
-        let expected_start = 17;
+        let expected_start = 16;
         let expected_end = test_input.len() - 1;
 
         assert_eq!(expected_start..expected_end, actual);

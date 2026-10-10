@@ -1,10 +1,6 @@
 use core::fmt;
 use std::{
-    collections::BTreeMap,
-    fmt::Display,
-    fs::File,
-    io::{self, BufRead, BufReader, Write},
-    ops,
+    collections::BTreeMap, error, fmt::Display, fs::File, io::{self, BufRead, BufReader, Write}, ops,
 };
 
 use crate::operation::{self, Operation, OperationExecutionError};
@@ -77,7 +73,7 @@ impl Drop for FuncMap {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Function {
     params: Vec<(String, Option<f64>)>,
     operation: Operation,
@@ -190,7 +186,7 @@ impl Function {
             return;
         }
 
-        self.cur_operands = self.operands.len() - 1..self.operands.len();
+        self.cur_operands = (self.operands.len() - 1)..self.operands.len();
     }
 
     pub fn change_operands(&mut self, other: &Function) {
@@ -282,7 +278,6 @@ pub enum FunctionError {
     ArgumentMismatch,
     OperationError(OperationExecutionError),
     ParseError(usize, char),
-    ParseOperationError(operation::ParseOperationError),
 }
 
 impl From<OperationExecutionError> for FunctionError {
@@ -292,10 +287,28 @@ impl From<OperationExecutionError> for FunctionError {
 }
 
 impl From<operation::ParseOperationError> for FunctionError {
-    fn from(err: operation::ParseOperationError) -> Self {
-        Self::ParseOperationError(err)
+    fn from(_: operation::ParseOperationError) -> Self {
+        Self::ParseError(0, ' ')
     }
 }
+
+impl Display for FunctionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ArgumentMismatch => {
+                write!(f, "Wrong number of arguments given for substitution!")
+            }
+            Self::OperationError(op_exe_err) => {
+                write!(f, "Operation error: {op_exe_err}")
+            }
+            Self::ParseError(idx, ch) => {
+                write!(f, "Invalid character found at position {idx}: '{ch}'")
+            }
+        }
+    }
+}
+
+impl error::Error for FunctionError {}
 
 struct CharWriter<'a> {
     buf: &'a mut Vec<char>,
@@ -526,6 +539,19 @@ fn parse_del(line: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    // TODO: Make this test pass in order for `FunctionHandler` to process cur_operand
+    // correctly in function mode
+    #[test]
+    fn test_reparse_cur_operand() {
+        let test_vec: Vec<char> = "+ 'x 2'y 3'z ".chars().collect();
+        let expected_cur_operands = 2..3;
+
+        let mut func = Function::default();
+        func.reparse(&test_vec, 0).expect("Reparsing failed unexpectedly!");
+
+        assert_eq!(expected_cur_operands, func.cur_operands());
+    }
+
     #[test]
     fn test_empty_parse() {
         assert!(parse_func(&Vec::new(), 0).is_err());
@@ -589,11 +615,11 @@ mod tests {
         let expected_cur_operand = 3..4;
 
         let test_vec: Vec<char> =
-            "/ 5.' 1'x.i'x 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -'x.i"
+            "/ 5 1'x.i'x 2.1'!n 3'var1 0.00'z 39'0 - 69.67'... 1521-'va-l -'x.i"
                 .chars()
                 .collect();
 
-        let actual = parse_func(&test_vec, 27).expect("Parsing failed unexpectedly!");
+        let actual = parse_func(&test_vec, 25).expect("Parsing failed unexpectedly!");
 
         assert_eq!(expected_params, actual.0, "Parameter mismatch!");
         assert_eq!(expected_operation, actual.1, "Operation mismatch!");

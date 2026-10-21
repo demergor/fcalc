@@ -326,7 +326,9 @@ fn parse(
         }
     }
 
+    let mut correction_offset = 1;
     if !first_digit {
+        correction_offset = 0;
         operands.push(if already_negative {
             -cur / comp_div
         } else {
@@ -352,7 +354,7 @@ fn parse(
     cur_operand = match cur_operand {
         _ if operands.is_empty() => None,
         Some(idx) if idx == 0 => Some(0),
-        Some(idx) => Some(idx - 1),
+        Some(idx) => Some(idx - correction_offset),
         None => Some(operands.len() - 1),
     };
 

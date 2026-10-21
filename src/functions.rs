@@ -1,6 +1,11 @@
 use core::fmt;
 use std::{
-    collections::BTreeMap, error, fmt::Display, fs::File, io::{self, BufRead, BufReader, Write}, ops,
+    collections::BTreeMap,
+    error,
+    fmt::Display,
+    fs::File,
+    io::{self, BufRead, BufReader, Write},
+    ops,
 };
 
 use crate::operation::{self, Operation, OperationExecutionError};
@@ -547,7 +552,8 @@ mod tests {
         let expected_cur_operands = 2..3;
 
         let mut func = Function::default();
-        func.reparse(&test_vec, 0).expect("Reparsing failed unexpectedly!");
+        func.reparse(&test_vec, 0)
+            .expect("Reparsing failed unexpectedly!");
 
         assert_eq!(expected_cur_operands, func.cur_operands());
 
@@ -555,7 +561,8 @@ mod tests {
         let expected_cur_operands = 1..2;
 
         let mut func = Function::default();
-        func.reparse(&test_vec, 13).expect("Reparsing failed unexpectedly!");
+        func.reparse(&test_vec, 13)
+            .expect("Reparsing failed unexpectedly!");
 
         assert_eq!(expected_cur_operands, func.cur_operands());
     }

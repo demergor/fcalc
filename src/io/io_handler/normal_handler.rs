@@ -7,11 +7,17 @@ use std::{
 };
 
 use crate::{
-    fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError}, io::{
-        Key, State, io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET, SHOW_CURSOR, SYNTAX_ERR_MSG,
+    fold_expr::{FoldExpr, FoldExprError, ParseFoldExprError},
+    io::{
+        Key, State,
+        io_handler::{
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError,
+            Mode, RESET, SHOW_CURSOR, SYNTAX_ERR_MSG,
         },
-    }, operation::{Operation, OperationExecutionError}, opts, terminal::Terminal,
+    },
+    operation::{Operation, OperationExecutionError},
+    opts,
+    terminal::Terminal,
 };
 
 pub struct NormalHandler {
@@ -204,7 +210,11 @@ impl NormalHandler {
                 self.cur_pair()?.1.insert(cur_col, ch);
                 cur_col = if cur_col < 3 { 3 } else { cur_col + 1 };
 
-                if ch.is_whitespace() || ch == '.' || self.syntax_error()? {
+                if ch.is_whitespace()
+                    || ch == '.'
+                    || ch == '0'
+                    || self.syntax_error()?
+                {
                     let cur_line = self.cur_pair()?.1.iter().collect::<String>();
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
@@ -229,6 +239,7 @@ impl NormalHandler {
                 self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
                 let cur_col = self.cur_col - 1;
                 self.cur_pair()?.1.remove(cur_col);
+                let buf_len = self.cur_pair()?.1.len();
                 self.cur_col = cur_col;
 
                 if self.syntax_error()? {
@@ -241,6 +252,11 @@ impl NormalHandler {
                 }
 
                 self.render()?;
+                if self.cur_pair()?.1.len() < buf_len {
+                    self.cur_col = self.cur_col.clamp(2, self.cur_pair()?.1.len());
+                    print!("\x1b[{}G", self.cur_col + 1);
+                    stdout().flush()?;
+                }
             }
             Key::ArrowRight => {
                 let cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());

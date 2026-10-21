@@ -341,7 +341,12 @@ fn parse(
     if operands.iter().all(|x| *x == 0.0) {
         operands.dedup();
     } else {
+        let last_op = operands.pop();
         operands.retain(|x| *x != 0.0);
+
+        if let Some(last_op) = last_op {
+            operands.push(last_op);
+        }
     }
 
     cur_operand = match cur_operand {

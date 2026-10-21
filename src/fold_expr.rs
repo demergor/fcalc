@@ -167,6 +167,14 @@ impl FoldExpr {
             cur_operand: Some(0),
         })
     }
+
+    pub fn flip_cur_operand(&mut self) {
+        let Some(cur_op_idx) = self.cur_operand else {
+            return;
+        };
+
+        self.operands[cur_op_idx] = -self.operands[cur_op_idx];
+    }
 }
 
 impl Default for FoldExpr {

@@ -111,7 +111,7 @@ impl NormalHandler {
                 self.render()?;
                 self.reset_cursor_pos()?;
             }
-            Key::Char('R') => {
+            Key::Char('r') => {
                 if self.syntax_error()? {
                     return Ok(State::Continue(
                         Mode::Normal,
@@ -125,7 +125,7 @@ impl NormalHandler {
                 self.render()?;
                 self.reset_cursor_pos()?;
             }
-            Key::Char('E') => {
+            Key::Char('e') => {
                 if self.syntax_error()? {
                     return Ok(State::Continue(
                         Mode::Normal,
@@ -163,8 +163,8 @@ impl NormalHandler {
                 self.render()?;
                 self.reset_cursor_pos()?;
             }
-            Key::Char(ch) if ch == 'W' || ch == 'B' => {
-                let get_operand_idx = if ch == 'W' {
+            Key::Char(ch) if ch == 'w' || ch == 'b' => {
+                let get_operand_idx = if ch == 'w' {
                     FoldExpr::next_operand
                 } else {
                     FoldExpr::previous_operand
@@ -180,6 +180,21 @@ impl NormalHandler {
                 };
 
                 self.cursor_to(op_end - 1)?;
+            }
+            Key::Char('_') => {
+                let (cur_expr, cur_line) = self.cur_pair()?;
+                cur_expr.flip_cur_operand();
+
+                let mut buf = Vec::new();
+                cur_expr.write_chars(&mut buf)?;
+
+                self.cur_col = match buf.len() {
+                    len if len > cur_line.len() => self.cur_col + 1,
+                    len if len < cur_line.len() => self.cur_col - 1,
+                    _ => self.cur_col,
+                };
+
+                self.render()?;
             }
             Key::Char('F') => return Ok(State::Continue(Mode::FunctionDecl, None)),
             Key::Char('V') => return Ok(State::Continue(Mode::VariableDecl, None)),

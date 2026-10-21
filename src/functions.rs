@@ -435,19 +435,6 @@ fn parse_func(
         return Err(FunctionError::ParseError(idx, '\''));
     }
 
-    cur_operand = match cur_operand {
-        _ if operands.is_empty() => 0..0,
-        range if range == (0..1) => 0..1,
-        range if range.is_empty() => operands.len() - 1..operands.len(),
-        range => {
-            if cursor_on_operand {
-                range
-            } else {
-                range.start - 1..range.end - 1
-            }
-        }
-    };
-
     if !in_num && !already_delim {
         params.sort();
         params.dedup();
@@ -476,6 +463,19 @@ fn parse_func(
         vars: cur_term_vars.clone(),
         coeff: cur_num,
     });
+
+    cur_operand = match cur_operand {
+        _ if operands.is_empty() => 0..0,
+        range if range == (0..1) => 0..1,
+        range if range.is_empty() => operands.len() - 1..operands.len(),
+        range => {
+            if cursor_on_operand {
+                range
+            } else {
+                range.start - 1..range.end - 1
+            }
+        }
+    };
 
     Ok((
         params.iter().cloned().map(|name| (name, None)).collect(),
@@ -548,6 +548,14 @@ mod tests {
 
         let mut func = Function::default();
         func.reparse(&test_vec, 0).expect("Reparsing failed unexpectedly!");
+
+        assert_eq!(expected_cur_operands, func.cur_operands());
+
+        let test_vec: Vec<char> = "-  'x 2'xyzzz 4 3'z ".chars().collect();
+        let expected_cur_operands = 1..2;
+
+        let mut func = Function::default();
+        func.reparse(&test_vec, 13).expect("Reparsing failed unexpectedly!");
 
         assert_eq!(expected_cur_operands, func.cur_operands());
     }

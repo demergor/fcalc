@@ -1,0 +1,39 @@
+   Compiling fcalc v0.1.0 (/home/jimmy/code/rust/fcalc)
+warning: methods `evaluate` and `substitute` are never used
+   --> src/functions.rs:85:12
+    |
+ 84 | impl Function {
+    | ------------- methods in this implementation
+ 85 |     pub fn evaluate(&mut self, args: Vec<f64>) -> Result<f64, FunctionError> {
+    |            ^^^^^^^^
+...
+203 |     fn substitute(&mut self, args: Vec<f64>) -> Result<(), FunctionError> {
+    |        ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `ArgumentMismatch` is never constructed
+   --> src/functions.rs:278:5
+    |
+277 | pub enum FunctionError {
+    |          ------------- variant in this enum
+278 |     ArgumentMismatch,
+    |     ^^^^^^^^^^^^^^^^
+    |
+    = note: `FunctionError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: variant `FunctionSelect` is never constructed
+   --> src/io/io_handler.rs:104:5
+    |
+100 | pub enum Mode {
+    |          ---- variant in this enum
+...
+104 |     FunctionSelect,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `Mode` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `fcalc` (bin "fcalc" test) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/main.rs (target/debug/deps/fcalc-39cabfaebe9ffd20)
+error: test failed, to rerun pass `--bin fcalc`

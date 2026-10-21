@@ -209,6 +209,7 @@ impl NormalHandler {
                 let mut cur_col = min(self.cur_col, self.cur_pair()?.1.len());
                 self.cur_pair()?.1.insert(cur_col, ch);
                 cur_col = if cur_col < 3 { 3 } else { cur_col + 1 };
+                let len_before_render = self.cur_pair()?.1.len();
 
                 if ch.is_whitespace()
                     || ch == '.'
@@ -224,6 +225,10 @@ impl NormalHandler {
                 }
 
                 self.render()?;
+                if self.cur_pair()?.1.len() < len_before_render {
+                    cur_col -= len_before_render - self.cur_pair()?.1.len();
+                }
+
                 // TODO: Investigate if the lower bound should be 1 or 2
                 cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len() - 1, 2));
                 self.cursor_to(cur_col)?;
@@ -239,7 +244,7 @@ impl NormalHandler {
                 self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
                 let cur_col = self.cur_col - 1;
                 self.cur_pair()?.1.remove(cur_col);
-                let buf_len = self.cur_pair()?.1.len();
+                let len_before_render = self.cur_pair()?.1.len();
                 self.cur_col = cur_col;
 
                 if self.syntax_error()? {
@@ -252,8 +257,8 @@ impl NormalHandler {
                 }
 
                 self.render()?;
-                if self.cur_pair()?.1.len() < buf_len {
-                    self.cur_col = self.cur_col.clamp(2, self.cur_pair()?.1.len());
+                if self.cur_pair()?.1.len() < len_before_render {
+                    self.cur_col -= len_before_render - self.cur_pair()?.1.len();
                     print!("\x1b[{}G", self.cur_col + 1);
                     stdout().flush()?;
                 }

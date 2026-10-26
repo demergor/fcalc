@@ -61,7 +61,7 @@ impl FunctionHandler {
         })
     }
 
-    pub fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn Error>> {
+    pub fn handle_decl(&mut self, key: Key) -> Result<State, Box<dyn error::Error>> {
         match key {
             Key::Char('Q') => {
                 self.fresh = true;
@@ -445,6 +445,22 @@ impl FunctionHandler {
         }
 
         Ok(State::Continue(Mode::FunctionDecl, None))
+    }
+
+    pub fn handle_select(&mut self, key: Key) -> Result<State, Box<dyn error::Error>> {
+        match key {
+            Key::Char('Q') => {
+                self.fresh = true;
+                return Ok(State::Continue(
+                    Mode::Normal,
+                    Some(String::from("Cancelled function selection"))
+                ));
+            }
+            Key::Enter => {
+                todo!()
+            }
+            _ => todo!("Define the rest"),
+        }
     }
 
     pub fn render_decl(&mut self) -> Result<(), Box<dyn Error>> {

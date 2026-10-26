@@ -37,7 +37,10 @@ pub struct FunctionHandler {
     lines: Vec<Vec<char>>,
     func_name_buf: Vec<char>,
     cur_col: usize,
+
     cur_selection: Option<usize>,
+    selected_func: Option<Function>,
+    param_buf: Vec<char>,
 
     term_width: u16,
     term_height: u16,
@@ -54,7 +57,10 @@ impl FunctionHandler {
             lines: vec![Vec::new()],
             func_name_buf: functions::INSERTION_PREFIX.to_vec(),
             cur_col: 0,
+
             cur_selection: None,
+            selected_func: None,
+            param_buf: Vec::new(),
 
             term_width: bounds.width,
             term_height: bounds.height,
@@ -174,7 +180,6 @@ impl FunctionHandler {
                         ));
                     }
 
-                    self.name_finished = true;
 
                     self.funcs.clear();
                     self.lines.clear();
@@ -183,6 +188,7 @@ impl FunctionHandler {
                     let buf = self.lines.push_mut(Vec::new());
                     self.funcs[0].write_chars(buf)?;
                     self.funcs[0].cur_operand_to_last();
+                    self.name_finished = true;
 
                     self.render_decl()?;
                     self.reset_cursor_pos()?;
@@ -457,7 +463,31 @@ impl FunctionHandler {
                 ));
             }
             Key::Enter => {
-                todo!()
+                if !self.name_finished {
+                    let needle: String = self.func_name_buf.iter().collect();
+                    let matches = self.match_vec(&needle, self.term_width as usize)?;
+
+                    if matches.is_empty() {
+                        return Ok(State::Continue(
+                            Mode::Normal,
+                            Some(String::from("No matching function found!")),
+                        ));
+                    }
+
+                    self.selected_func = Some(
+                        matches[self.cur_selection.unwrap()].1.clone()
+                    );
+
+                    self.name_finished;
+                    todo!("Implement render_select()");
+                    // self.render_select()?;
+
+                    return Ok(State::Continue(Mode::FunctionSelect, None));
+                }
+
+                let params = parse_params(&self.param_buf);
+                let result = self.selected_func.clone().unwrap().evaluate(params)?;
+                return Ok(State::Continue(Mode::NormalCarry(result), None));
             }
             _ => todo!("Define the rest"),
         }
@@ -698,10 +728,25 @@ impl FunctionHandler {
         self.funcs.push(root_func);
         self.lines.push(buf);
 
-        println!("{}", self.func_name_buf.iter().collect::<String>());
+        // println!("{}", self.func_name_buf.iter().collect::<String>());
 
         self.cur_col = self.func_name_buf.len();
         self.cur_selection = None;
+        self.name_finished = false;
+        self.fresh = false;
+
+        Ok(())
+    }
+
+    fn init_select(&mut self) -> Result<(), Box<dyn Error>>{
+        self.func_name_buf.clear();
+        self.param_buf.clear();
+        self.cur_col = 0;
+
+        let matches_len = 
+            self.match_vec(&String::from(""), self.term_width as usize)?.len();
+        self.cur_selection = if matches_len > 0 { Some(0) } else { None };
+
         self.name_finished = false;
         self.fresh = false;
 
@@ -836,6 +881,10 @@ fn operands_range(slice: &[char], idx_range: ops::Range<usize>) -> ops::Range<us
 
     range.end = slice.len();
     range
+}
+
+fn parse_params(vec: &Vec<char>) -> Vec<f64> {
+    todo!()
 }
 
 #[cfg(test)]

@@ -9,14 +9,14 @@ use std::{
 
 use crate::{
     functions::{
-        self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError, HandleResult,
-        INSERTION_PREFIX,
+        self, COEFF_DELIM, DELETION_PREFIX, FuncMap, Function, FunctionError,
+        HandleResult, INSERTION_PREFIX,
     },
     io::{
         Key, State,
         io_handler::{
-            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError, Mode, RESET,
-            RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
+            ERASE_FROM_CURSOR, ERR_COLOR, HIDE_CURSOR, HIGHLIGHT_COLOR, HOME, IoError,
+            Mode, RESET, RESET_COLORS, SHOW_CURSOR, SUCCESS_COLOR, SYNTAX_ERR_MSG,
         },
     },
     operation::Operation,
@@ -180,7 +180,6 @@ impl FunctionHandler {
                         ));
                     }
 
-
                     self.funcs.clear();
                     self.lines.clear();
 
@@ -226,7 +225,8 @@ impl FunctionHandler {
                     };
                 }
 
-                let mut child_func = self.funcs.pop().ok_or(InternalStateError::NoFunction)?;
+                let mut child_func =
+                    self.funcs.pop().ok_or(InternalStateError::NoFunction)?;
 
                 self.lines.pop();
                 child_func.reduce();
@@ -331,21 +331,25 @@ impl FunctionHandler {
                 self.cursor_to(op_range.end - 1)?;
             }
             Key::Char(ch) => {
-                let mut cur_col;
+                let mut cur_col = self.cur_col;
                 let buf = if !self.name_finished {
-                    cur_col = self.cur_col;
                     &mut self.func_name_buf
                 } else {
-                    cur_col = self.cur_col;
                     self.cur_pair()?.1
                 };
 
                 cur_col = min(cur_col, buf.len());
                 buf.insert(cur_col, ch);
-                let buflen = buf.len();
+                let old_buf_len = buf.len();
+                let trailing_whitespace =
+                    buf.last().is_some_and(|ch| ch.is_whitespace());
                 cur_col += 1;
 
-                if ch.is_whitespace() || ch == COEFF_DELIM || ch == '.' || self.syntax_error()? {
+                if ch.is_whitespace()
+                    || ch == COEFF_DELIM
+                    || ch == '.'
+                    || self.syntax_error()?
+                {
                     let cur_line: String = if self.name_finished {
                         self.cur_pair()?.1.iter().collect()
                     } else {
@@ -358,15 +362,14 @@ impl FunctionHandler {
                     return Ok(State::Continue(Mode::FunctionDecl, None));
                 }
 
+                if !self.name_finished {
+                    todo!("Calculate cursor offset based on whitespace existence and length diff");
+                    let mut buf = Vec::new();
+                    self.cur_pair()?.0.write_chars(&mut buf)?;
+                    self.cur_col -= old_buf_len - min(buf.len(), old_buf_len);
+                }
+
                 self.render_decl()?;
-                cur_col = cur_col.clamp(
-                    if self.name_finished {
-                        1
-                    } else {
-                        INSERTION_PREFIX.len()
-                    },
-                    max(buflen, 2),
-                );
                 self.cursor_to(cur_col)?;
             }
             Key::Backspace => {
@@ -459,7 +462,7 @@ impl FunctionHandler {
                 self.fresh = true;
                 return Ok(State::Continue(
                     Mode::Normal,
-                    Some(String::from("Cancelled function selection"))
+                    Some(String::from("Cancelled function selection")),
                 ));
             }
             Key::Enter => {
@@ -474,9 +477,8 @@ impl FunctionHandler {
                         ));
                     }
 
-                    self.selected_func = Some(
-                        matches[self.cur_selection.unwrap()].1.clone()
-                    );
+                    self.selected_func =
+                        Some(matches[self.cur_selection.unwrap()].1.clone());
 
                     self.name_finished;
                     todo!("Implement render_select()");
@@ -524,11 +526,15 @@ impl FunctionHandler {
         }
 
         let param_list: String = self.cur_pair()?.0.param_names().join(", ");
-        write!(out, "Define \x1b[3m{func_name}({param_list})\x1b[0m below:\n")?;
+        write!(
+            out,
+            "Define \x1b[3m{func_name}({param_list})\x1b[0m below:\n"
+        )?;
 
         let width = self.term_width as usize;
-        let mut rem_height =
-            self.term_height as usize - (param_list.chars().count() + width - 1) / width + 1;
+        let mut rem_height = self.term_height as usize
+            - (param_list.chars().count() + width - 1) / width
+            + 1;
         let to_skip: usize = {
             let mut idx = self.lines.len();
             while idx > 0 && rem_height > 0 {
@@ -649,7 +655,9 @@ impl FunctionHandler {
         Ok(())
     }
 
-    fn cur_pair(&mut self) -> Result<(&mut Function, &mut Vec<char>), InternalStateError> {
+    fn cur_pair(
+        &mut self,
+    ) -> Result<(&mut Function, &mut Vec<char>), InternalStateError> {
         if self.funcs.len() != self.lines.len() {
             return Err(InternalStateError::OutOfSync);
         }
@@ -672,7 +680,8 @@ impl FunctionHandler {
         }
 
         let mut it = self.funcs.iter_mut().rev().zip(self.lines.iter_mut().rev());
-        let (mut cur_func, mut cur_line) = it.next().ok_or(InternalStateError::NoFunction)?;
+        let (mut cur_func, mut cur_line) =
+            it.next().ok_or(InternalStateError::NoFunction)?;
         cur_func.write_chars(&mut cur_line)?;
 
         while let Some((next_func, next_line)) = it.next() {
@@ -707,8 +716,10 @@ impl FunctionHandler {
             .iter()
             .filter(|(key, _)| key.contains(needle))
             .map(|(key, val)| {
-                let height =
-                    ((key.chars().count() + val.to_string().chars().count()) - 1) / width + 1;
+                let height = ((key.chars().count() + val.to_string().chars().count())
+                    - 1)
+                    / width
+                    + 1;
                 acc += height;
                 (key.clone(), val.clone(), height, acc)
             })
@@ -738,13 +749,14 @@ impl FunctionHandler {
         Ok(())
     }
 
-    fn init_select(&mut self) -> Result<(), Box<dyn Error>>{
+    fn init_select(&mut self) -> Result<(), Box<dyn Error>> {
         self.func_name_buf.clear();
         self.param_buf.clear();
         self.cur_col = 0;
 
-        let matches_len = 
-            self.match_vec(&String::from(""), self.term_width as usize)?.len();
+        let matches_len = self
+            .match_vec(&String::from(""), self.term_width as usize)?
+            .len();
         self.cur_selection = if matches_len > 0 { Some(0) } else { None };
 
         self.name_finished = false;

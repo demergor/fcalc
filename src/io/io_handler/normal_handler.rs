@@ -229,8 +229,6 @@ impl NormalHandler {
                     cur_col -= len_before_render - self.cur_pair()?.1.len();
                 }
 
-                // TODO: Investigate if the lower bound should be 1 or 2
-                cur_col = cur_col.clamp(2, max(self.cur_pair()?.1.len() - 1, 2));
                 self.cursor_to(cur_col)?;
             }
             Key::Backspace => {
@@ -243,12 +241,24 @@ impl NormalHandler {
 
                 self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
                 let cur_col = self.cur_col - 1;
-                self.cur_pair()?.1.remove(cur_col);
-                let len_before_render = self.cur_pair()?.1.len();
+                let cur_line = self.cur_pair()?.1;
+                cur_line.remove(cur_col);
+
+                while cur_line
+                    .iter()
+                    .rev()
+                    .nth(1)
+                    .is_some_and(|ch| ch.is_whitespace())
+                    && cur_line.last().is_some_and(|ch| ch.is_whitespace())
+                {
+                    cur_line.pop();
+                }
+
+                let len_before_render = cur_line.len();
                 self.cur_col = cur_col;
 
                 if self.syntax_error()? {
-                    let cur_line = self.cur_pair()?.1.iter().collect::<String>();
+                    let cur_line: String = self.cur_pair()?.1.iter().collect();
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
                     self.cursor_to(cur_col)?;
@@ -259,8 +269,7 @@ impl NormalHandler {
                 self.render()?;
                 if self.cur_pair()?.1.len() < len_before_render {
                     self.cur_col -= len_before_render - self.cur_pair()?.1.len();
-                    print!("\x1b[{}G", self.cur_col + 1);
-                    stdout().flush()?;
+                    self.cursor_to(self.cur_col)?;
                 }
             }
             Key::ArrowRight => {

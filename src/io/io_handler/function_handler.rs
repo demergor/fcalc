@@ -341,6 +341,7 @@ impl FunctionHandler {
                 cur_col = min(cur_col, buf.len());
                 buf.insert(cur_col, ch);
                 let old_buf_len = buf.len();
+                let old_buf: String = buf.iter().collect();
                 let trailing_whitespace =
                     buf.last().is_some_and(|ch| ch.is_whitespace());
                 cur_col += 1;
@@ -362,11 +363,19 @@ impl FunctionHandler {
                     return Ok(State::Continue(Mode::FunctionDecl, None));
                 }
 
-                if !self.name_finished {
-                    todo!("Calculate cursor offset based on whitespace existence and length diff");
+                if self.name_finished {
                     let mut buf = Vec::new();
                     self.cur_pair()?.0.write_chars(&mut buf)?;
-                    self.cur_col -= old_buf_len - min(buf.len(), old_buf_len);
+                    let whitespace_offset =
+                        if !trailing_whitespace 
+                            && buf.last().is_some_and(|ch| ch.is_whitespace()) 
+                        { 
+                            1
+                        } else {
+                            0 
+                        };
+
+                    cur_col -= old_buf_len - (buf.len() - whitespace_offset);
                 }
 
                 self.render_decl()?;

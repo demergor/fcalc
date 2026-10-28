@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    cmp::{max, min},
+    cmp::min,
     error::Error,
     fmt::Display,
     io::{self, BufWriter, Write, stdout},
@@ -239,8 +239,7 @@ impl NormalHandler {
                     ));
                 }
 
-                self.cur_col = min(self.cur_col, self.cur_pair()?.1.len());
-                let cur_col = self.cur_col - 1;
+                let mut cur_col = min(self.cur_col, self.cur_pair()?.1.len()) - 1;
                 let cur_line = self.cur_pair()?.1;
                 cur_line.remove(cur_col);
 
@@ -255,8 +254,6 @@ impl NormalHandler {
                 }
 
                 let len_before_render = cur_line.len();
-                self.cur_col = cur_col;
-
                 if self.syntax_error()? {
                     let cur_line: String = self.cur_pair()?.1.iter().collect();
                     print!("\r\x1b[2K{}", cur_line);
@@ -268,8 +265,8 @@ impl NormalHandler {
 
                 self.render()?;
                 if self.cur_pair()?.1.len() < len_before_render {
-                    self.cur_col -= len_before_render - self.cur_pair()?.1.len();
-                    self.cursor_to(self.cur_col)?;
+                    cur_col -= len_before_render - self.cur_pair()?.1.len();
+                    self.cursor_to(cur_col)?;
                 }
             }
             Key::ArrowRight => {

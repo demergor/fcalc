@@ -26,7 +26,7 @@ use crate::{
 
 const DECL_HINT: &str = "<F> = declare a new function, <D> = delete existing function";
 const NAME_MIN_LEN: usize = INSERTION_PREFIX.len();
-const LINE_MIN_LEN: usize = 1;
+const LINE_MIN_LEN: usize = 2;
 
 pub struct FunctionHandler {
     fresh: bool,
@@ -331,6 +331,13 @@ impl FunctionHandler {
                 self.cursor_to(op_range.end - 1)?;
             }
             Key::Char(ch) => {
+                if !self.name_finished && ch.is_whitespace() {
+                    return Ok(State::Continue(
+                        Mode::FunctionDecl,
+                        Some(String::from("No whitespaces allowed in function name!")),
+                    ));
+                }
+
                 let mut cur_col = self.cur_col;
                 let buf = if !self.name_finished {
                     &mut self.func_name_buf
@@ -348,6 +355,7 @@ impl FunctionHandler {
                 if ch.is_whitespace()
                     || ch == COEFF_DELIM
                     || ch == '.'
+                    || ch == '0'
                     || self.syntax_error()?
                 {
                     let cur_line: String = if self.name_finished {
@@ -362,24 +370,31 @@ impl FunctionHandler {
                     return Ok(State::Continue(Mode::FunctionDecl, None));
                 }
 
-                if self.name_finished {
-                    let mut buf = Vec::new();
-                    self.cur_pair()?.0.write_chars(&mut buf)?;
-                    let whitespace_offset = if !trailing_whitespace
-                        && buf.last().is_some_and(|ch| ch.is_whitespace())
-                    {
-                        1
-                    } else {
-                        0
-                    };
+                self.render_decl()?;
+                if !self.name_finished {
+                    self.cursor_to(cur_col)?;
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                }
+
+                let mut buf = Vec::new();
+                self.cur_pair()?.0.write_chars(&mut buf)?;
+                let whitespace_offset = if !trailing_whitespace
+                    && buf.last().is_some_and(|ch| ch.is_whitespace())
+                {
+                    1
+                } else {
+                    0
+                };
+
+                if old_buf_len >= buf.len() {
                     cur_col -= old_buf_len - (buf.len() - whitespace_offset);
                 }
 
-                self.render_decl()?;
+                self.cur_col = max(cur_col, LINE_MIN_LEN);
                 self.cursor_to(cur_col)?;
             }
             Key::Backspace => {
-                let cur_col = self.cur_col;
+                let mut cur_col = self.cur_col;
                 let min_len;
                 let buf = if self.name_finished {
                     min_len = LINE_MIN_LEN;
@@ -396,10 +411,24 @@ impl FunctionHandler {
                     ));
                 }
 
-                let cur_col = min(cur_col, buf.len()) - 1;
+                cur_col = min(cur_col, buf.len()) - 1;
                 buf.remove(cur_col);
 
-                if self.name_finished && self.syntax_error()? {
+                while buf.iter().rev().nth(1).is_some_and(|ch| ch.is_whitespace())
+                    && buf.last().is_some_and(|ch| ch.is_whitespace())
+                {
+                    buf.pop();
+                }
+
+                let old_buf_len = buf.len();
+                if !self.name_finished {
+                    self.render_decl()?;
+                    self.cursor_to(cur_col)?;
+
+                    return Ok(State::Continue(Mode::FunctionDecl, None));
+                }
+
+                if self.syntax_error()? {
                     let cur_line: String = self.cur_pair()?.1.iter().collect();
                     print!("\r\x1b[2K{}", cur_line);
                     self.reeval()?;
@@ -409,7 +438,11 @@ impl FunctionHandler {
                 }
 
                 self.render_decl()?;
-                self.cursor_to(cur_col)?;
+                if old_buf_len > self.cur_pair()?.1.len() {
+                    cur_col -= old_buf_len - self.cur_pair()?.1.len();
+                }
+
+                self.cursor_to(max(cur_col, LINE_MIN_LEN))?;
             }
             Key::ArrowUp => {
                 if self.name_finished {

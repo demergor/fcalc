@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    error::Error, fmt::{Display, Formatter, Write},
+    cmp, error::Error, fmt::{Display, Formatter, Write},
 };
 
 use crate::operation::{Operation, OperationExecutionError, ParseOperationError};
@@ -74,11 +74,9 @@ impl FoldExpr {
             write!(cw, " ")?;
         }
 
-        for i in 0..self.operands.len() {
-            write!(cw, "{} ", self.operands[i])?;
+        for op in &self.operands {
+            write!(cw, "{} ", op)?;
         }
-
-        print!("{buf:?}");
 
         Ok(())
     }
@@ -354,7 +352,7 @@ fn parse(
     cur_operand = match cur_operand {
         _ if operands.is_empty() => None,
         Some(idx) if idx == 0 => Some(0),
-        Some(idx) => Some(idx - correction_offset),
+        Some(idx) => Some(cmp::min(idx - correction_offset, operands.len() - 1)),
         None => Some(operands.len() - 1),
     };
 

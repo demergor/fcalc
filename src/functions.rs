@@ -161,7 +161,7 @@ impl Function {
         }
 
         self.cur_operands.start = (self.cur_operands.start + 1) % self.operands.len();
-        self.cur_operands.end = (self.cur_operands.end + 1) & self.operands.len();
+        self.cur_operands.end = self.cur_operands.start + 1;
 
         self.cur_operands.clone()
     }
@@ -177,11 +177,7 @@ impl Function {
             self.cur_operands.start - 1
         };
 
-        self.cur_operands.end = if self.cur_operands.end == 0 {
-            self.operands.len() - 1
-        } else {
-            self.cur_operands.end - 1
-        };
+        self.cur_operands.end = self.cur_operands.start + 1;
 
         self.cur_operands.clone()
     }

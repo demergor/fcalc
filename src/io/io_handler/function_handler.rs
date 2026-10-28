@@ -319,7 +319,7 @@ impl FunctionHandler {
                 let (cur_func, cur_line) = self.cur_pair()?;
                 let op_range = get_operand_range(cur_func);
 
-                if !op_range.is_empty() {
+                if op_range.is_empty() {
                     return Ok(State::Continue(Mode::FunctionDecl, None));
                 };
 

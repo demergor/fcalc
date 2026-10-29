@@ -266,8 +266,9 @@ impl NormalHandler {
                 self.render()?;
                 if self.cur_pair()?.1.len() < len_before_render {
                     cur_col -= len_before_render - self.cur_pair()?.1.len();
-                    self.cursor_to(cur_col)?;
                 }
+
+                self.cursor_to(cur_col)?;
             }
             Key::ArrowRight => {
                 let cur_col = min(self.cur_col + 1, self.cur_pair()?.1.len());

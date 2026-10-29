@@ -39,16 +39,16 @@
 _The function modes are mostly still under construction_
 _If you're stuck, try pressing 'h' (or 'H' in Function Declaration Mode), it might help_
 
-Work In Progress: 
+## Work In Progress: 
 - add metafunctions to functions, like argc(...) to be able to make more complex function definitions possible
 - add predefined functions like sum(x...), product(x...), log(x, y) (maybe add an operator for that as well), etc.
 - implement smart cursor-locking when a render-cycle changes the underlying text buffer
 
-Planned features:
+## Planned features:
 
-Maybe features: 
+## Maybe features: 
 - implement thousands delimiters
 
-Bugs: 
+## Bugs: 
 - Typing in a subexpression in Function Declaration Mode crashes due to out-of-bounds 
     slice access

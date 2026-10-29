@@ -614,7 +614,6 @@ impl FunctionHandler {
             first = false;
         }
 
-        // self.render_matches(func_name, &mut out)?;
         write!(out, "\x1b[{}G{SHOW_CURSOR}", self.cur_col + 1)?;
         out.flush()?;
 
